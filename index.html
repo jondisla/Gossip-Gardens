@@ -500,7 +500,64 @@
       .story-backdrop,.story-advance .story-character,.story-advance .story-character img,.story-advance .story-character b,.story-bubble,.repair-character,.repair-action-stamp,.repair-film-speech { animation: none !important; }
       .story-advance .story-character,.story-advance .story-character img,.story-advance .story-character b,.story-bubble,.repair-character,.repair-action-stamp,.repair-film-speech { will-change: auto; }
     }
+    /* Original portrait-first 7 × 9 merge board and progression panels. */
+    .board { width: min(100%,max(150px,calc((100dvh - 330px) * .7778))); max-height: calc(100dvh - 330px); aspect-ratio: 7 / 9; grid-template-columns: repeat(7,minmax(0,1fr)); grid-template-rows: repeat(9,minmax(0,1fr)); }
+    .resource-pills { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 3px; }
+    .resource-pill { height: 31px; gap: 2px; padding: 2px 3px; font-size: clamp(9px,2.5vw,12px); }
+    .resource-pill > span { font-size: clamp(13px,3.8vw,17px); }
+    .topline { gap: 5px; }
+    .gen-level { position: absolute; top: 1px; right: 2px; z-index: 2; padding: 1px 3px; border-radius: 6px; background: #fff7e9e8; color: #805a38; font-size: 8px; line-height: 1.1; font-weight: 950; }
+    .nav { gap: 3px; }
+    .nav .btn { display: flex; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 3px 1px; font-size: 14px; line-height: 1; }
+    .nav .btn span { margin-left: 0; font-size: clamp(8px,2.3vw,10px); line-height: 1; }
+    .collection-tabs,.progress-tabs { display: flex; gap: 5px; margin: 8px 0 10px; overflow-x: auto; }
+    .collection-tabs button,.progress-tabs button { flex: 1 0 auto; min-height: 34px; border: 1px solid #e9d8bd; border-radius: 11px; padding: 5px 8px; background: #fffdf7; color: #79634f; font-size: 10px; font-weight: 900; }
+    .collection-tabs button.active,.progress-tabs button.active { border-color: #66aaa0; background: #e6f4e8; color: #43766f; box-shadow: 0 2px 0 #9dc4ae; }
+    .panel-note { margin: 4px 2px 9px; color: #89745f; font-size: 10px; line-height: 1.4; }
+    .inventory-list,.generator-list,.mastery-list,.achievement-list,.objective-list { display: grid; gap: 7px; }
+    .inventory-entry,.generator-entry,.mastery-entry,.achievement-entry,.objective-entry { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px; border: 1px solid #efdfc6; border-radius: 13px; background: linear-gradient(130deg,#fffefa,#fff3df); }
+    .inventory-icon,.generator-icon,.entry-icon { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #f0d8b6; border-radius: 12px; background: #fff8e9; font-size: 23px; }
+    .entry-copy { min-width: 0; }
+    .entry-copy b { display: block; color: #62526a; font-size: 11px; line-height: 1.25; }
+    .entry-copy small { display: block; margin-top: 3px; color: #907864; font-size: 9px; line-height: 1.3; }
+    .entry-action { min-height: 31px; padding: 4px 7px; border-radius: 9px; font-size: 9px; white-space: nowrap; }
+    .collection-family { margin: 8px 0; padding: 9px; border: 1px solid #efdfc6; border-radius: 13px; background: #fffefa; }
+    .collection-family.locked { opacity: .72; }
+    .collection-family-head { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 900; }
+    .collection-family-head small { margin-left: auto; color: #99816b; font-size: 8px; }
+    .collection-chain { display: flex; gap: 4px; margin-top: 7px; overflow-x: auto; }
+    .collection-tier { display: grid; flex: 0 0 46px; place-items: center; min-height: 53px; border-radius: 9px; background: #f7eddb; color: #82694e; }
+    .collection-tier > span { font-size: 20px; line-height: 1; }
+    .collection-tier small { max-width: 44px; overflow: hidden; color: #927c65; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+    .generator-entry.locked,.objective-entry.claimed,.achievement-entry.earned { background: #edf5e9; }
+    .entry-progress { height: 6px; overflow: hidden; margin-top: 6px; border-radius: 8px; background: #eee4d2; }
+    .entry-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#80bf7e,#e5bf68); }
+    .player-progress { padding: 10px; border: 1px solid #ead9ba; border-radius: 13px; background: #fff5df; }
+    .player-progress > div:first-child { display: flex; justify-content: space-between; color: #715542; font-size: 11px; font-weight: 900; }
+    .player-progress small { display: block; margin-top: 5px; color: #8f765d; font-size: 9px; }
+    .item-detail-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0; }
+    .item-detail-actions .btn { flex: 1 1 auto; min-height: 34px; font-size: 10px; }
+    .item-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; margin: 9px 0; }
+    .item-stats span { padding: 7px 4px; border-radius: 9px; background: #f5eddd; color: #87725d; text-align: center; font-size: 8px; }
+    .item-stats b { display: block; margin-top: 3px; color: #6b5547; font-size: 10px; }
+    .item-chain { display: flex; align-items: center; justify-content: space-between; gap: 2px; overflow-x: auto; }
+    .item-chain span { display: flex; flex-direction: column; align-items: center; min-width: 26px; font-size: 17px; }
+    .item-chain small { font-size: 7px; }
+    .item-chain .unknown { color: #b9aa97; }
+    .map-heading { margin: 10px 2px 5px; color: #9e7049; font-size: 10px; font-weight: 950; letter-spacing: .65px; }
+    .loc.location-locked { background: #f1ece4; }
+    .location-lock { flex: 0 0 auto; color: #96816c; font-size: 10px; font-weight: 850; }
+    .loc-details > b { color: #63536a; }
+    .deco .built { filter: none; opacity: 1; }
+    .deco .locked-deco { opacity: .25; }
+    .order-stages { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 9px 0; }
+    .order-stages span { width: 10px; height: 10px; border: 2px solid #c9bba8; border-radius: 50%; background: #fff; }
+    .order-stages span.done,.order-stages span.current { border-color: #68b49b; background: #78c77b; }
+    .order-stages small { color: #80715f; font-size: 9px; }
+    @media (max-height: 720px) { .board { width: min(100%,max(150px,calc((100dvh - 285px) * .7778))); max-height: calc(100dvh - 285px); } }
+    @media (max-width: 360px) { .resource-pill { font-size: 9px; }.nav { gap: 2px; }.nav .btn span { font-size: 8px; }.collection-tier { flex-basis: 42px; } }
   </style>
+  <link rel="stylesheet" href="./harbor-ui.css">
 </head>
 <body>
   <main id="game-container" aria-label="Harbor Whispers merge game"></main>
