@@ -1,0 +1,3 @@
+- Music: gentle, loopable ukulele/marimba cozy harbor tune.
+- SFX: bright merge pop; additional feedback uses small WebAudio triangle beeps.
+- Audio starts after a user gesture; a persistent mute toggle is available.
