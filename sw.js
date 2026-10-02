@@ -1,8 +1,10 @@
-const CACHE_NAME = 'harbor-whispers-v11';
+const CACHE_NAME = 'harbor-whispers-v19';
 const APP_FILES = [
   './',
   './index.html',
   './main.js',
+  './game-content.js',
+  './harbor-ui.css',
   './manifest.webmanifest',
   './app-icon.svg',
   './rosebud-game-defaults.css',
@@ -21,6 +23,14 @@ const APP_FILES = [
   './assets/char-mae.webp',
   './assets/char-theo.webp',
   './assets/char-iris.webp',
+  './assets/char-cora.webp',
+  './assets/char-rowan.webp',
+  './assets/char-jules.webp',
+  './assets/char-adrian.webp',
+  './assets/char-nora.webp',
+  './assets/char-milo.webp',
+  './assets/char-selene.webp',
+  './assets/char-tamsin.webp',
   './assets/audio/harbor-music.mp3',
   './assets/audio/merge-pop.mp3'
 ];
