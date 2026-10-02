@@ -1,0 +1,19 @@
+{
+  "name": "Harbor Whispers",
+  "short_name": "Harbor Whispers",
+  "description": "A cozy harbor-town merge adventure.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#b6e5dc",
+  "theme_color": "#75cbbd",
+  "icons": [
+    {
+      "src": "./app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
