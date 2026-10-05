@@ -190,9 +190,6 @@
     .reward-items { display: flex; justify-content: center; gap: 18px; margin-top: 7px; font-size: 18px; }
     .reward-items b { color: #545675; font-size: 14px; }
     .quest-status { padding: 5px; color: #6a7585; text-align: center; font-size: 11px; font-weight: 800; }
-    .quest-deliver { width: 100%; min-height: 48px; border: 3px solid #f8f2dc; border-radius: 17px; background: #b9c9b1; color: white; box-shadow: 0 4px 0 #8e9e87; font-size: 15px; }
-    .quest-deliver.ready { background: linear-gradient(#74df5c,#43b846); box-shadow: 0 4px 0 #2e8839; }
-    .quest-deliver:disabled { opacity: .75; }
     .story-scene { position: fixed; z-index: 90; inset: 0; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; padding: max(18px,env(safe-area-inset-top)) 14px max(20px,env(safe-area-inset-bottom)); background: #2233449c; color: white; touch-action: manipulation; }
     .story-backdrop { position: absolute; z-index: -1; inset: -15px; background: url('./assets/harbor-bg.webp') center 54% / cover no-repeat; filter: blur(7px) brightness(.53); transform: scale(1.05); }
     .story-topline { display: flex; justify-content: space-between; align-items: flex-start; width: 100%; max-width: 520px; margin: 0 auto; text-shadow: 0 2px 4px #27374a; }
@@ -558,6 +555,7 @@
     @media (max-width: 360px) { .resource-pill { font-size: 9px; }.nav { gap: 2px; }.nav .btn span { font-size: 8px; }.collection-tier { flex-basis: 42px; } }
   </style>
   <link rel="stylesheet" href="./harbor-ui.css">
+  <link rel="stylesheet" href="./restoration-ui.css">
 </head>
 <body>
   <main id="game-container" aria-label="Harbor Whispers merge game"></main>
