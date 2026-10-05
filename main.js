@@ -1,5 +1,6 @@
 // Harbor Whispers — original harbor-town merge adventure. The save key is intentionally stable.
 import { FAMILIES, MAIN_FAMILIES, GENERATOR_DEFS, CHARS, REQUEST_NOTES, CHAPTER_EXPANSION, TASK_TEMPLATES, DAILY_OBJECTIVES, BOOSTERS } from './game-content.js';
+import { repairDetailMarkup, repairDetailState } from './repair-details.js';
 const GEN_CHARGES = 12;
 const GEN_COOLDOWN_MS = 20_000;
 const MAX_ENERGY = 100;
@@ -49,6 +50,28 @@ const LOCATIONS = [
   { id:'wharf', name:'Old Wharf', icon:'🛶', decos:['🪵','🪢','🛟','🪜','🧱','⚓','🏮','🌅'], film:'pier', unlockChapter:10 },
   { id:'festival', name:'Festival Plaza', icon:'🎏', decos:['🧹','🎏','🪑','🎈','🏮','🎨','🎁','🎉'], film:'garden', unlockChapter:11 }
 ];
+
+// A compact, data-driven eight-beat story day for every existing campaign chapter.
+// These chores add a narrative guide without replacing the original chapter/star unlocks.
+const STORY_CHORE_STEPS = [
+  { kind:'orders', target:1, character:'mae', title:'Answer a neighbor’s call', detail:'Someone nearby needs a hand before the day can move forward.' },
+  { kind:'merges', target:3, character:'theo', title:'Prepare useful supplies', detail:'Build a few better items for the harbor crew.' },
+  { kind:'orders', target:1, character:'iris', title:'Check in with the Gazette', detail:'A small delivery may help Iris connect another detail.' },
+  { kind:'restorations', target:1, character:'rowan', title:'Make a lasting repair', detail:'Put coins toward a visible improvement at this chapter’s location.' },
+  { kind:'discoveries', target:1, character:'iris', title:'Uncover something new', detail:'Create an item tier the harbor collection has not seen before.' },
+  { kind:'merges', target:3, character:'theo', title:'Gather the crew’s materials', detail:'Keep merging; every careful combination helps the work.' },
+  { kind:'orders', target:2, character:'mae', title:'Help two more neighbors', detail:'The harbor mystery belongs to everyone who shows up.' },
+  { kind:'restorations', target:1, character:'cora', title:'Leave the place better', detail:'Finish one more improvement and see what the next chapter brings.' }
+];
+const CHAPTER_LOCATION_IDS = ['cafe','pier','office','garden','pier','cafe','lighthouse','archive','archive','market','lighthouse','office','wharf','office','festival','lighthouse','festival','cafe'];
+const STORY_LOCATION_ART = {
+  cafe:'assets/restore-cafe-scene.webp', theo:'assets/restore-pier-scene.webp',
+  iris:'assets/restore-gazette-scene.webp', cora:'assets/restore-pier-scene.webp',
+  rowan:'assets/restore-pier-scene.webp', jules:'assets/restore-garden-scene.webp',
+  adrian:'assets/restore-cafe-scene.webp', nora:'assets/restore-gazette-scene.webp',
+  milo:'assets/restore-pier-scene.webp', selene:'assets/restore-garden-scene.webp',
+  tamsin:'assets/restore-cafe-scene.webp'
+};
 const RESTORATION_STAGES = {
   cafe: [
     ['Clear the storm damage','Mae and the neighbors sweep saltwater from the floor and salvage what they can from the battered café.'],['Patch the roof','Fresh rafters go up where the storm tore the roof away. At last, the ovens can stay dry.'],['Fit the windows','Warm light returns to the front windows, and Mae can see the harbor from her counter again.'],['Set the tables','The crew carries in sturdy tables. The first pot of coffee is already brewing for the helpers.'],['Open the café doors','The café is whole again. Mae sets out a welcome feast for everyone who helped bring it back.'],['Refresh the kitchen','A repaired prep counter lets Mae cook for a full room again.'],['Add garden seating','Jules brings a few planters outside for guests who like the sea breeze.'],['Host the grand reopening','The café becomes the harbor’s shared table, with room for every neighbor.']
@@ -106,6 +129,149 @@ const CAFE_FLOORS = [
   { id: 'cream', name: 'Cream', color: '#e6cf9a' },
   { id: 'walnut', name: 'Walnut', color: '#89604a' }
 ];
+
+// Location-specific choices are presented at the two big story milestones.
+// The illustration stays visible while the player previews and confirms a finish.
+const RESTORATION_DESIGNS = {
+  cafe: {
+    4: { key:'floor', title:'Choose Mae’s café finish', prompt:'Which floor should welcome the harbor crew?', choices:[
+      {id:'seafoam',name:'Coastal',description:'Sea-glass tones and a breezy feel.',icon:'🪑',color:'#88aaa0'},
+      {id:'rose',name:'Garden',description:'A warm rosewood glow with room to linger.',icon:'🌷',color:'#bd796d'},
+      {id:'honey',name:'Classic',description:'Honey oak, as sunny as Mae’s kitchen.',icon:'☕',color:'#d9a75f'}
+    ]},
+    8: { key:'welcome', title:'Choose the café welcome', prompt:'Give the reopened café its own finishing touch.', choices:[
+      {id:'coastal',name:'Harbor blue',description:'A bright welcome for every sailor.',icon:'⚓',color:'#57b9c2'},
+      {id:'garden',name:'Garden blooms',description:'Mae’s doorway framed with flowers.',icon:'🌼',color:'#8cb66a'},
+      {id:'classic',name:'Warm brass',description:'A timeless bell above the door.',icon:'🔔',color:'#d7a54f'}
+    ]}
+  },
+  pier: {
+    4: { key:'rail', title:'Choose the pier rail', prompt:'What should greet everyone coming in with the tide?', choices:[
+      {id:'maritime',name:'Maritime',description:'Rope details and a sturdy sea-green rail.',icon:'🛟',color:'#55b9bd'},
+      {id:'vintage',name:'Tideworn',description:'A little history in every weathered board.',icon:'🪵',color:'#b98555'},
+      {id:'bright',name:'Fresh paint',description:'A clear, cheerful landmark by the water.',icon:'⛵',color:'#80b9d1'}
+    ]},
+    8: { key:'lookout', title:'Shape the harbor overlook', prompt:'Set the tone for the town’s favorite view.', choices:[
+      {id:'lantern',name:'Lantern glow',description:'A warm beacon against the evening tide.',icon:'🏮',color:'#eba85e'},
+      {id:'classic',name:'Classic harbor',description:'Natural timber and familiar details.',icon:'⚓',color:'#b98555'},
+      {id:'festival',name:'Festival colors',description:'Bunting for every sunrise gathering.',icon:'🎏',color:'#e77f91'}
+    ]}
+  },
+  garden: {
+    4: { key:'shade', title:'Choose the garden’s shady nook', prompt:'Make a restful corner for helpers and butterflies.', choices:[
+      {id:'cottage',name:'Cottage',description:'Soft blooms and a tucked-away seat.',icon:'🌷',color:'#d88ca5'},
+      {id:'botanical',name:'Botanical',description:'Leafy greens and a little plant table.',icon:'🌿',color:'#83a85a'},
+      {id:'seaside',name:'Seaside',description:'Pale stone with a view of the water.',icon:'🐚',color:'#74b6b2'}
+    ]},
+    8: { key:'arch', title:'Choose the garden arch', prompt:'Give the community garden a memorable entrance.', choices:[
+      {id:'cottage',name:'Cottage roses',description:'A soft arch woven with garden color.',icon:'🌹',color:'#dc86a5'},
+      {id:'botanical',name:'Green bower',description:'A leafy welcome for pollinators.',icon:'🌱',color:'#77a759'},
+      {id:'seaside',name:'Sea-glass arch',description:'A fresh, open frame for celebrations.',icon:'🦋',color:'#60b9bd'}
+    ]}
+  },
+  office: {
+    4: { key:'newsroom', title:'Choose the newsroom touch', prompt:'Make the Gazette a place to pause and share a clue.', choices:[
+      {id:'traditional',name:'Traditional',description:'Ink, oak and a tidy editor’s desk.',icon:'🖋️',color:'#9c7957'},
+      {id:'colorful',name:'Colorful',description:'Bright pages and a little harbor cheer.',icon:'📰',color:'#e28b77'},
+      {id:'refined',name:'Refined',description:'Quiet shelves and sea-glass accents.',icon:'📚',color:'#7e9ea9'}
+    ]},
+    8: { key:'edition', title:'Choose the Gazette edition', prompt:'Set the look of the story the whole town will read.', choices:[
+      {id:'traditional',name:'Town chronicle',description:'A classic keepsake for the archive.',icon:'📜',color:'#b18a5e'},
+      {id:'colorful',name:'Harbor voices',description:'A lively page full of neighbors.',icon:'🗞️',color:'#e68a6c'},
+      {id:'refined',name:'The light returns',description:'A clear, elegant edition to remember.',icon:'✨',color:'#789faa'}
+    ]}
+  },
+  market: {
+    4: { key:'canopy', title:'Choose a market canopy', prompt:'Make the square comfortable on bright mornings.', choices:[
+      {id:'coastal',name:'Coastal',description:'Sea-blue shade with crisp white trim.',icon:'⛵',color:'#62b7c4'},
+      {id:'garden',name:'Garden',description:'Leafy shade beside the herb stalls.',icon:'🌿',color:'#86ad66'},
+      {id:'classic',name:'Classic',description:'Warm canvas for a traditional market.',icon:'🧺',color:'#dfa45f'}
+    ]},
+    8: { key:'market-day', title:'Set the market-day mood', prompt:'Make the shared square feel like a celebration.', choices:[
+      {id:'maker',name:'Makers’ row',description:'A handmade welcome for local crafts.',icon:'🎨',color:'#d58497'},
+      {id:'harvest',name:'Harvest morning',description:'Fresh colors from the garden plots.',icon:'🌻',color:'#d7a847'},
+      {id:'harbor',name:'Harbor fair',description:'Bunting and lanterns by the quay.',icon:'🎏',color:'#5faeb1'}
+    ]}
+  },
+  lighthouse: {
+    4: { key:'lens-frame', title:'Choose the lens frame', prompt:'Honor the old beacon while making it safe again.', choices:[
+      {id:'maritime',name:'Maritime',description:'Deep sea-green metal and brass fittings.',icon:'⚓',color:'#4caab1'},
+      {id:'vintage',name:'Vintage',description:'A faithful finish for the keeper’s room.',icon:'🏮',color:'#c08a56'},
+      {id:'modern',name:'Clear light',description:'Simple lines for a brighter signal.',icon:'🔆',color:'#89bdc0'}
+    ]},
+    8: { key:'beacon', title:'Choose the beacon’s glow', prompt:'Decide how the restored light will greet the harbor.', choices:[
+      {id:'maritime',name:'Maritime',description:'A steady blue-green harbor signal.',icon:'🌊',color:'#55b9bd'},
+      {id:'vintage',name:'Keeper’s gold',description:'Warm brass and an old familiar glow.',icon:'🌟',color:'#e8b454'},
+      {id:'modern',name:'Clear white',description:'A crisp beam for the far shore.',icon:'💡',color:'#a5d4d1'}
+    ]}
+  },
+  workshop: {
+    4: { key:'bench', title:'Choose the teaching bench', prompt:'Make a good place for the next pair of hands.', choices:[
+      {id:'rustic',name:'Rustic',description:'Honest timber with room for every tool.',icon:'🪵',color:'#b98555'},
+      {id:'nautical',name:'Nautical',description:'Sea-glass paint and rope-bound corners.',icon:'⚓',color:'#59aeb5'},
+      {id:'industrial',name:'Workshop steel',description:'A sturdy, precise maker’s station.',icon:'⚙️',color:'#8295a0'}
+    ]},
+    8: { key:'toolwall', title:'Arrange the tool wall', prompt:'Give every borrowed tool a visible home.', choices:[
+      {id:'rustic',name:'Pegboard oak',description:'A warm wall of well-loved tools.',icon:'🔨',color:'#b98555'},
+      {id:'nautical',name:'Harbor blue',description:'A bright, easy-to-read workshop wall.',icon:'🛠️',color:'#56aeb8'},
+      {id:'industrial',name:'Maker’s steel',description:'Clean lines for careful repair work.',icon:'⚙️',color:'#8399a2'}
+    ]}
+  },
+  archive: {
+    4: { key:'desk', title:'Choose the reading desk', prompt:'Give neighbors a comfortable place to follow a clue.', choices:[
+      {id:'antique',name:'Antique',description:'A desk with the patina of old stories.',icon:'📜',color:'#b18b61'},
+      {id:'organized',name:'Organized',description:'Clear labels and a calm, tidy surface.',icon:'🗂️',color:'#7b9ca4'},
+      {id:'cozy',name:'Cozy',description:'A lamp and a place to settle in.',icon:'🕯️',color:'#d99d5a'}
+    ]},
+    8: { key:'collection', title:'Choose the archive finish', prompt:'Make the town’s shared history feel at home.', choices:[
+      {id:'antique',name:'Antique stacks',description:'Old wood for well-traveled records.',icon:'📚',color:'#b18b61'},
+      {id:'organized',name:'Open collection',description:'Bright shelves, easy for everyone to use.',icon:'🗄️',color:'#789da6'},
+      {id:'cozy',name:'Story corner',description:'A welcoming nook for reading together.',icon:'📖',color:'#d69b5e'}
+    ]}
+  },
+  wharf: {
+    4: { key:'net-rack', title:'Choose the net rack', prompt:'Make a dry, dependable space for the fishing crew.', choices:[
+      {id:'weathered',name:'Weathered',description:'Keep the old wharf’s familiar character.',icon:'🪵',color:'#a87e59'},
+      {id:'festival',name:'Bright harbor',description:'A little color for the old landing.',icon:'🏮',color:'#e7a454'},
+      {id:'classic',name:'Classic',description:'Simple rope and sturdy timber.',icon:'🪢',color:'#72aeb1'}
+    ]},
+    8: { key:'lantern', title:'Choose the wharf lantern', prompt:'Mark the old landing as a place to return to.', choices:[
+      {id:'weathered',name:'Old keeper',description:'A lantern in the style of the first pier.',icon:'🏮',color:'#d39a59'},
+      {id:'festival',name:'Festival glow',description:'A bright light for gathering evenings.',icon:'🎏',color:'#df8298'},
+      {id:'classic',name:'Classic harbor',description:'A steady, familiar light above the tide.',icon:'⚓',color:'#6eabb2'}
+    ]}
+  },
+  festival: {
+    4: { key:'lanterns', title:'Choose the plaza lanterns', prompt:'Set a warm mood for neighbors meeting after sunset.', choices:[
+      {id:'cottage',name:'Garden glow',description:'Soft colors among the plaza flowers.',icon:'🌼',color:'#89ae65'},
+      {id:'harbor',name:'Harbor blue',description:'Sea-glass shades along the square.',icon:'🏮',color:'#59adb6'},
+      {id:'bright',name:'Festival bright',description:'A joyful splash of lantern color.',icon:'🎏',color:'#df8298'}
+    ]},
+    8: { key:'stage', title:'Choose the celebration stage', prompt:'Make a place for every street to share the day.', choices:[
+      {id:'cottage',name:'Garden stage',description:'A flower-framed place for music.',icon:'🌷',color:'#88ad63'},
+      {id:'harbor',name:'Harbor stage',description:'Blue boards and familiar dock details.',icon:'⚓',color:'#5aaab2'},
+      {id:'bright',name:'Festival stage',description:'Bunting, color and room to dance.',icon:'🎉',color:'#df8298'}
+    ]}
+  }
+};
+
+const RESTORATION_CAST = {
+  cafe:['mae','rowan','iris'], pier:['theo','cora','milo'], garden:['jules','mae','selene'], office:['iris','nora','rowan'],
+  market:['adrian','mae','jules'], lighthouse:['cora','theo','milo'], workshop:['rowan','milo','theo'],
+  archive:['nora','iris','cora'], wharf:['theo','milo','rowan'], festival:['mae','jules','tamsin']
+};
+const RESTORATION_DIALOGUE = {
+  cafe:[['mae','The storm left its mark, but this café is still ours.'],['rowan','I’ve checked the frame. We can make this safe, one careful repair at a time.'],['mae','Then let’s build a place where everyone has a seat.']],
+  pier:[['theo','The boards are rough, but I can hear the harbor waking up already.'],['cora','A steady hand and a few neighbors will see it right.'],['theo','Let’s give the tide a pier worth coming home to.']],
+  garden:[['jules','The beds look tired. The soil underneath is still full of promise.'],['mae','We’ll bring the color back together.'],['jules','And leave room for whatever wants to bloom next.']],
+  office:[['iris','A few pages made it through the storm. The rest of the room can, too.'],['nora','The records are safe. Now let’s make space for the next story.'],['iris','This Gazette belongs to the whole harbor.']],
+  market:[['adrian','The square is quiet without its morning crowd.'],['jules','A little shade and somewhere to stop will bring them back.'],['adrian','Let’s make this a place to meet, not just a place to shop.']],
+  lighthouse:[['cora','The old light has guided this harbor for generations.'],['theo','We’ll repair it carefully. The sea deserves a clear signal.'],['cora','And no one will have to find the way home alone.']],
+  workshop:[['rowan','A good repair starts with a bench that doesn’t wobble.'],['milo','I’ve got the timber ready. Show me how you’d fit it.'],['rowan','That’s the spirit. We’ll make a place to learn together.']],
+  archive:[['nora','These records hold the names of everyone who helped before us.'],['iris','Then let’s give them a room the whole town can visit.'],['nora','Carefully kept, and never locked away.']],
+  wharf:[['milo','The old landing looks smaller than I remember.'],['theo','It only needs a safe path and a little attention.'],['milo','Then let’s make it ready for the next crossing.']],
+  festival:[['mae','This square has heard every harbor celebration.'],['jules','Soon it’ll be full of lanterns and familiar faces again.'],['mae','Let’s make room for the whole town.']]
+};
 
 function getCafeFloor() {
   return CAFE_FLOORS.find(floor => floor.id === state.cafeFloor) || CAFE_FLOORS[0];
@@ -175,12 +341,14 @@ function newState() {
     saveVersion: SAVE_VERSION,
     coins: 120, pearls: 5, energy: 60, maxEnergy: MAX_ENERGY, stars: 0, chapter: 0, starsToward: 0,
     playerLevel: 1, xp: 0, xpToNext: 100, cafeFloor: 'honey',
+    locationStyles: Object.fromEntries(LOCATIONS.map(location => [location.id, {}])), pendingRestoration: null,
     boards: { main: makeBoard(MAIN_FAMILIES), event: makeBoard(['shell']) },
     tasks: [], levels, inventory: [], inventoryCapacity: 30, unlockedFamilies: [...MAIN_FAMILIES],
     generatorLevels: Object.fromEntries(GENERATOR_DEFS.map(generator => [generator.family, 1])), pendingGenerators: [],
     familyMastery, discoveredItems, boosters, stats: { merges: 0, generated: 0, orders: 0, restorations: 0, discoveries: 0, fiveMerges: 0, eventPoints: 0 },
     achievements: [], relationships: Object.fromEntries(Object.keys(CHARS).map(id => [id, 1])),
     eventPoints: 0, eventClaimed: [], dailyClaimedAt: '', dailyDay: today, dailyStreak: 0, dailyObjectives: makeDailyObjectives(today),
+    storyChores: {}, storyMoments: [],
     introSeen: false, tutorialSeen: false, tutorialStarted: false, tutorialStep: 0,
     victorySeen: false, lastTick: now, offlineEnergyGained: 0
   };
@@ -276,6 +444,7 @@ function recordDiscovery(familyId, tier) {
     state.coins += 8 + tier * 4;
     grantXP(8 + tier * 3);
     updateDailyProgress('discoveries');
+    if (familyId !== 'shell') recordStoryAction('discoveries');
     showFloat(`New discovery · ${item.name}`);
   }
 }
@@ -369,9 +538,24 @@ function loadState() {
     migrated.relationships = { ...fresh.relationships, ...(saved.relationships || {}) };
     migrated.dailyDay = saved.dailyDay || dailyDateKey();
     migrated.dailyObjectives = Array.isArray(saved.dailyObjectives) && migrated.dailyDay === dailyDateKey() ? saved.dailyObjectives.map(objective => ({...objective, progress:Math.max(0,Number(objective.progress)||0), claimed:Boolean(objective.claimed), reward:{...(objective.reward||{})}})) : makeDailyObjectives();
+    migrated.storyChores = saved.storyChores && typeof saved.storyChores === 'object' && !Array.isArray(saved.storyChores) ? saved.storyChores : {};
+    migrated.storyMoments = Array.isArray(saved.storyMoments) ? saved.storyMoments.filter(moment => moment && Array.isArray(moment.lines)).slice(-10) : [];
     migrated.dailyStreak = Math.max(0, Number(saved.dailyStreak) || 0);
     migrated.eventClaimed = Array.isArray(saved.eventClaimed) ? saved.eventClaimed : [];
     migrated.cafeFloor = CAFE_FLOORS.some(floor => floor.id === saved.cafeFloor) ? saved.cafeFloor : fresh.cafeFloor;
+    migrated.locationStyles = Object.fromEntries(LOCATIONS.map(location => {
+      const savedStyles = saved.locationStyles?.[location.id] && typeof saved.locationStyles[location.id] === 'object' ? saved.locationStyles[location.id] : {};
+      const validStyles = {};
+      Object.entries(RESTORATION_DESIGNS[location.id] || {}).forEach(([, design]) => {
+        const choiceId = savedStyles[design.key];
+        if (design.choices.some(choice => choice.id === choiceId)) validStyles[design.key] = choiceId;
+      });
+      return [location.id, validStyles];
+    }));
+    const pending = saved.pendingRestoration;
+    migrated.pendingRestoration = pending && LOCATIONS.some(location => location.id === pending.locationId) && Number.isInteger(Number(pending.level))
+      ? { locationId:pending.locationId, level:Math.max(1,Math.min(8,Number(pending.level))), phase:['design','install','reaction','complete'].includes(pending.phase) ? pending.phase : 'reaction', designKey:String(pending.designKey || '') }
+      : null;
     migrated.victorySeen = Boolean(saved.victorySeen);
     const now = Date.now();
     const rawElapsed = Math.max(0, now - (Number(saved.lastTick) || now));
@@ -388,6 +572,82 @@ function loadState() {
 
 function maxEnergyFor(data) {
   return Math.max(MAX_ENERGY, Math.min(200, Number(data?.maxEnergy) || MAX_ENERGY));
+}
+
+function storyChapterIndex() {
+  return Math.max(0, Math.min(CHAPTERS.length - 1, (Number(state?.chapter) || 0) - 1));
+}
+
+function storyChoreContext() {
+  const chapterIndex = storyChapterIndex();
+  const savedTrack = state.storyChores?.[chapterIndex] || {};
+  const stepIndex = Math.max(0, Math.min(STORY_CHORE_STEPS.length, Number(savedTrack.step) || 0));
+  const template = STORY_CHORE_STEPS[stepIndex] || null;
+  const chapterLocation = LOCATIONS.find(entry => entry.id === CHAPTER_LOCATION_IDS[chapterIndex]) || LOCATIONS[0];
+  const location = template?.kind === 'restorations' ? nextRestorationGoal() || chapterLocation : chapterLocation;
+  const locationStage = location && RESTORATION_STAGES[location.id]?.[Number(state.levels[location.id]) || 0];
+  const chore = template ? {
+    ...template,
+    day: stepIndex === 7 ? 'FINAL BEAT' : stepIndex < 4 ? 'DAY 1 · HARBOR MORNING' : 'DAY 2 · THE THREAD DEEPENS',
+    title: template.kind === 'restorations' && locationStage ? locationStage[0] : template.title,
+    detail: template.kind === 'restorations' && locationStage ? `${location.name}: ${locationStage[1]}` : `${template.detail} ${location ? `The ${location.name.toLowerCase()} is at the heart of “${CHAPTERS[chapterIndex].title}.”` : ''}`,
+    location
+  } : null;
+  return {
+    chapterIndex,
+    chapter: CHAPTERS[chapterIndex],
+    stepIndex,
+    progress: Math.max(0, Number(savedTrack.progress) || 0),
+    chore
+  };
+}
+
+function recordStoryAction(kind, amount = 1) {
+  const context = storyChoreContext();
+  if (!context.chore || context.chore.kind !== kind) return;
+  const key = String(context.chapterIndex);
+  const track = state.storyChores[key] || (state.storyChores[key] = { step: 0, progress: 0 });
+  track.progress = Math.min(context.chore.target, context.progress + Math.max(1, Number(amount) || 1));
+  if (track.progress >= context.chore.target) {
+    track.step = Math.min(STORY_CHORE_STEPS.length, context.stepIndex + 1);
+    track.progress = 0;
+    feedbackMessage = `Story chore complete: ${context.chore.title}. The harbor day moves on.`;
+    showFloat('CHORE COMPLETE!');
+  }
+  saveState();
+}
+
+function isStoryPriorityTask(task) {
+  const chore = storyChoreContext().chore;
+  return Boolean(chore?.kind === 'orders' && task?.who === chore.character);
+}
+
+function queueOrderStory(task, deliveredItem) {
+  const who = CHARS[task?.who] ? task.who : 'mae';
+  const character = CHARS[who];
+  const reply = who === 'iris' ? 'mae' : 'iris';
+  const reactions = {
+    mae: `That ${deliveredItem?.name || 'item'} is just what the crew needed. Thank you for looking after all of us.`,
+    theo: `Good timing. I checked the measurements twice, so this should fit on the first try. Probably.`,
+    iris: `Another detail in place. The harbor story is easier to read when everyone adds a line.`,
+    cora: `A useful thing, delivered at the right tide. You are learning how this harbor works.`,
+    rowan: `Sound materials and a steady hand. That is how a lasting repair begins.`,
+    jules: `This will help something lovely take root. The little things matter, too.`,
+    adrian: `Exactly what the square needed. I will make sure the whole crew hears who helped.`,
+    nora: `I have recorded the delivery carefully. It belongs in the account of how we rebuilt.`,
+    milo: `You came through! I will get this to the crew before the tide changes.`,
+    selene: `That is a detail worth keeping. The best harbor stories are made together.`,
+    tamsin: `Perfect! The crew will have what they need—and I can finally serve the good biscuits.`
+  };
+  const replyLine = who === 'iris'
+    ? 'I will save you a place at Mae’s table. Good work deserves a proper thank-you.'
+    : 'I am adding this to the Gazette: the harbor gets stronger whenever someone shows up.';
+  state.storyMoments.push({
+    title: `${character.name} · A neighbor’s thanks`,
+    art: STORY_LOCATION_ART[who] || 'assets/harbor-bg.webp',
+    lines: [[who, reactions[who]], [reply, replyLine]]
+  });
+  if (state.storyMoments.length > 10) state.storyMoments.splice(0, state.storyMoments.length - 10);
 }
 
 let state = loadState() || newState();
@@ -600,7 +860,9 @@ function advanceStory() {
 function completeTask(index) {
   const task = state.tasks[index];
   if (!task || !taskReady(task)) return;
+  const sourcePoint = captureElementPoint(container.querySelector(`[data-serve-task="${index}"]`) || container.querySelector(`[data-task="${index}"]`));
   const requirement = currentRequirement(task);
+  const deliveredItem = FAMILIES[requirement.fam]?.tiers[requirement.tier - 1];
   const indices = findItems(requirement.fam, requirement.tier, requirement.quantity || 1);
   if (!indices.length) return;
   indices.forEach(itemIndex => { mainBoard()[itemIndex] = null; });
@@ -628,6 +890,8 @@ function completeTask(index) {
   grantXP(task.xp || 35);
   addMastery(task.fam, 12 + task.tier * 3);
   state.stats.orders += 1;
+  queueOrderStory(task, deliveredItem);
+  recordStoryAction('orders');
   state.relationships[task.who] = Math.min(10, (state.relationships[task.who] || 1) + 1);
   updateDailyProgress('orders');
   state.tasks.splice(index, 1);
@@ -635,8 +899,9 @@ function completeTask(index) {
   placePendingGenerators();
   checkAchievements();
   playPop();
-  showFloat(`+${task.coins}🪙${task.energy ? ` +${task.energy}⚡` : ''} +${task.stars}⭐${task.pearls ? ` +${task.pearls}🫧` : ''}`);
+  showFloat(`ORDER COMPLETE! +${task.coins}🪙${task.energy ? ` +${task.energy}⚡` : ''} +${task.stars}⭐${task.pearls ? ` +${task.pearls}🫧` : ''}`);
   render();
+  animateOrderRewards(sourcePoint, task);
   advanceStory();
 }
 
@@ -654,19 +919,32 @@ function showTask(index) {
   const requirement = currentRequirement(task);
   const family = FAMILIES[requirement.fam] || FAMILIES.coffee;
   const item = family.tiers[requirement.tier - 1];
+  if (!item) return;
   const quantity = requirement.quantity || 1;
   const ready = taskReady(task);
   const stageCount = task.requirements?.length || 1;
   const stageNumber = Math.min(stageCount, (task.stage || 0) + 1);
   const stageDots = Array.from({length:stageCount},(_,stage)=>`<span class="${stage < stageNumber - 1 ? 'done' : stage === stageNumber - 1 ? 'current' : ''}" aria-label="Stage ${stage + 1}"></span>`).join('');
-  showModal(`<div class="task-sheet" style="--quest-accent:${character.accent}"><div class="task-sheet-head"><div><small>${task.kind === 'multi-stage' ? 'MULTI-STEP HARBOR ORDER' : 'HARBOR REQUEST'}</small><h2>${task.title || 'A little favor'}</h2></div><button class="btn quest-close" aria-label="Close">✕</button></div><div class="quest-letter">${characterPortrait(task.who, 'quest-portrait')}<div><b>${character.name} · ${character.role}</b><span>is hoping for…</span><strong>${item.icon}${quantity > 1 ? ` ×${quantity}` : ''}</strong><p>“${task.note || 'Could you find me one? I’ll make it worth your while!'}”</p></div></div>${stageCount > 1 ? `<div class="order-stages">${stageDots}<small>Step ${stageNumber} of ${stageCount}</small></div>` : ''}<div class="quest-rewards"><div class="reward-heading"><span>✦</span><b>REWARDS</b><span>✦</span></div><div class="reward-items"><span>🪙 <b>${task.coins}</b></span><span>⚡ <b>${task.energy}</b></span><span>⭐ <b>${task.stars}</b></span>${task.pearls ? `<span>🫧 <b>${task.pearls}</b></span>` : ''}</div></div><div class="quest-status">${ready ? 'Ready to deliver!' : `Find ${quantity > 1 ? `${quantity} ` : 'a '}${family.name.toLowerCase()} item · Tier ${requirement.tier}`}</div><button class="btn quest-deliver ${ready ? 'ready' : ''}" ${ready ? '' : 'disabled'}>${ready ? `Deliver ${item.icon}${quantity > 1 ? ` ×${quantity}` : ''}` : 'Keep merging to find it'}</button></div>`, modal => {
-    modal.classList.add('task-modal');
+  const source = GENERATOR_DEFS.find(generator => generator.family === requirement.fam) || generatorDefinition(requirement.fam);
+  const chain = family.tiers.map((tier, tierIndex) => {
+    const tierNumber = tierIndex + 1;
+    const revealed = tierNumber <= requirement.tier || state.discoveredItems.includes(tier.id);
+    const current = tierNumber === requirement.tier;
+    const corners = current ? '<i class="request-chain-corner corner-tl"></i><i class="request-chain-corner corner-tr"></i><i class="request-chain-corner corner-bl"></i><i class="request-chain-corner corner-br"></i>' : '';
+    return `<div class="request-chain-tile ${revealed ? 'revealed' : 'mystery'} ${current ? 'current' : ''}" role="listitem" aria-label="${revealed ? `Tier ${tierNumber}: ${tier.name}${current ? ', requested item' : ''}` : `Undiscovered tier ${tierNumber}`}" title="${revealed ? tier.name : `Undiscovered tier ${tierNumber}`}" ${current ? `data-request-tier="${tierNumber}"` : ''}>${revealed ? itemArtMarkup(requirement.fam,tierNumber,'request-tier-art') : '<span>?</span>'}<small>T${tierNumber}</small>${current ? `<b class="request-quantity">${quantity}</b>${corners}` : ''}</div>`;
+  }).join('');
+  showModal(`<div class="request-collection" style="--quest-accent:${character.accent}">
+    <header class="request-collection-title"><span class="request-title-leaf leaf-left" aria-hidden="true">🌿</span><div><small>${isStoryPriorityTask(task) ? '📖 STORY PRIORITY · ' : ''}HARBOR REQUEST</small><h2>${item.name}</h2></div><span class="request-title-leaf leaf-right" aria-hidden="true">🌿</span><button class="btn quest-close" aria-label="Close">✕</button></header>
+    <h3 class="request-chain-level"><span aria-hidden="true">〰</span>Level ${requirement.tier}<span aria-hidden="true">〰</span></h3>
+    <div class="request-chain-grid" role="list" aria-label="${family.name} item merge chain">${chain}</div>
+    <section class="request-generator-section" aria-label="Item source"><div class="request-section-label"><i></i><b>Generated by:</b><i></i></div><div class="request-generator-card"><span class="request-generator-icon" aria-hidden="true">${source.icon}</span><span class="request-generator-copy"><b>${source.name}</b><small>Tap the matching generator to make an item</small></span><span class="request-generator-family" aria-hidden="true">${family.icon}</span></div></section>
+    <section class="request-neighbor-note">${characterPortrait(task.who, 'request-neighbor-portrait')}<div><b>${character.name} · ${character.role}</b><small>is hoping for ${item.icon}${quantity > 1 ? ` ×${quantity}` : ''}</small><p>“${task.note || 'Could you find me one? I’ll make it worth your while!'}”</p></div></section>
+    ${stageCount > 1 ? `<div class="request-order-stages">${stageDots}<small>Step ${stageNumber} of ${stageCount}</small></div>` : ''}
+    <div class="request-rewards" aria-label="Request rewards"><span>🪙 <b>${task.coins}</b></span><span>⚡ <b>${task.energy}</b></span><span>⭐ <b>${task.stars}</b></span>${task.pearls ? `<span>🫧 <b>${task.pearls}</b></span>` : ''}</div>
+    <div class="request-delivery-status">${ready ? 'Ready — tap SERVE on the neighbor card.' : quantity > 1 ? `Find ${quantity} matching ${family.name.toLowerCase()} items · Tier ${requirement.tier}` : `Find a matching ${family.name.toLowerCase()} · Tier ${requirement.tier}`}</div>
+  </div>`, modal => {
+    modal.classList.add('task-modal', 'order-chain-modal');
     modal.querySelector('.quest-close').onclick = () => modal.remove();
-    modal.querySelector('.quest-deliver').onclick = () => {
-      if (!taskReady(task)) return;
-      modal.remove();
-      completeTask(index);
-    };
   });
 }
 
@@ -805,6 +1083,7 @@ function recordMerge(familyId, tier, mergeCount = 1, bonusOutputs = 0) {
     state.stats.eventPoints = Math.max(state.stats.eventPoints, state.eventPoints);
   }
   if (mergeCount === 5) state.stats.fiveMerges += 1;
+  if (currentBoardKey === 'main') recordStoryAction('merges', mergeCount);
   if (Math.random() < 0.08) {
     grantEnergy(1);
     showFloat('+1⚡ bonus');
@@ -923,7 +1202,7 @@ function showItemDetails(index) {
   const family = FAMILIES[cell.fam];
   const item = family.tiers[cell.tier - 1];
   const matchCount = board().filter(entry => entry && !entry.gen && !entry.covered && !entry.locked && entry.fam === cell.fam && entry.tier === cell.tier).length;
-  showModal(`<div class="sheet-heading"><div><div class="story-kicker">${family.name.toUpperCase()} · TIER ${cell.tier}/8</div><h2>${item.icon} ${item.name}</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><p>${item.description}</p><div class="item-stats"><span>Sell value <b>${item.sellValue}🪙</b></span><span>Merge XP <b>+${item.xpValue} XP</b></span><span>Family mastery <b>Lv ${state.familyMastery[cell.fam]?.level || 1}</b></span></div><div class="item-detail-actions"><button class="btn item-lock">${cell.locked ? 'Unlock item' : 'Lock item'}</button><button class="btn item-store" ${state.inventory.length >= state.inventoryCapacity || cell.covered ? 'disabled' : ''}>Store</button><button class="btn item-sell" ${cell.locked || cell.covered ? 'disabled' : ''}>Sell · ${item.sellValue}🪙</button></div><div class="item-detail-actions merge-options">${matchCount >= 3 && cell.tier < 8 ? '<button class="btn primary merge-three">Merge 3 → 1</button>' : ''}${matchCount >= 5 && cell.tier < 8 ? '<button class="btn primary merge-five">Merge 5 → 2</button>' : ''}</div><p class="item-chain">${family.tiers.map((tier,index)=>`<span class="${index + 1 === cell.tier ? 'current' : state.discoveredItems.includes(tier.id) ? '' : 'unknown'}">${state.discoveredItems.includes(tier.id) ? tier.icon : '◆'}<small>T${index + 1}</small></span>`).join('<i>›</i>')}</p>`, modal => {
+  showModal(`<div class="sheet-heading"><div><div class="story-kicker">${family.name.toUpperCase()} · TIER ${cell.tier}/8</div><h2>${itemArtMarkup(cell.fam,cell.tier,'detail-item-art')} ${item.name}</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><p>${item.description}</p><div class="item-stats"><span>Sell value <b>${item.sellValue}🪙</b></span><span>Merge XP <b>+${item.xpValue} XP</b></span><span>Family mastery <b>Lv ${state.familyMastery[cell.fam]?.level || 1}</b></span></div><div class="item-detail-actions"><button class="btn item-lock">${cell.locked ? 'Unlock item' : 'Lock item'}</button><button class="btn item-store" ${state.inventory.length >= state.inventoryCapacity || cell.covered ? 'disabled' : ''}>Store</button><button class="btn item-sell" ${cell.locked || cell.covered ? 'disabled' : ''}>Sell · ${item.sellValue}🪙</button></div><div class="item-detail-actions merge-options">${matchCount >= 3 && cell.tier < 8 ? '<button class="btn primary merge-three">Merge 3 → 1</button>' : ''}${matchCount >= 5 && cell.tier < 8 ? '<button class="btn primary merge-five">Merge 5 → 2</button>' : ''}</div><p class="item-chain">${family.tiers.map((tier,index)=>`<span class="${index + 1 === cell.tier ? 'current' : state.discoveredItems.includes(tier.id) ? '' : 'unknown'}">${state.discoveredItems.includes(tier.id) ? itemArtMarkup(cell.fam,index + 1,'detail-chain-art') : '◆'}<small>T${index + 1}</small></span>`).join('<i>›</i>')}</p>`, modal => {
     modal.querySelector('.close-sheet').onclick = () => modal.remove();
     modal.querySelector('.item-lock').onclick = () => { modal.remove(); toggleItemLock(index); };
     modal.querySelector('.item-store').onclick = () => { if (state.inventory.length >= state.inventoryCapacity) return; modal.remove(); putItemInInventory(index); };
@@ -931,6 +1210,24 @@ function showItemDetails(index) {
     modal.querySelector('.merge-three')?.addEventListener('click', () => { modal.remove(); mergeSelectedGroup(index, 3); });
     modal.querySelector('.merge-five')?.addEventListener('click', () => { modal.remove(); mergeSelectedGroup(index, 5); });
   });
+}
+
+const ITEM_ART_ATLASES = {
+  coffee: 'assets/harbor-bakery-atlas.webp',
+  flower: 'assets/harbor-market-atlas.webp',
+  fish: 'assets/harbor-seafood-atlas.webp',
+  office: 'assets/harbor-pantry-atlas.webp'
+};
+
+function itemArtMarkup(familyId, tier, className = 'cell-icon') {
+  const item = FAMILIES[familyId]?.tiers[tier - 1];
+  if (!item) return '';
+  const atlas = ITEM_ART_ATLASES[familyId];
+  if (!atlas) return `<span class="${className}" aria-hidden="true">${item.icon}</span>`;
+  const column = (tier - 1) % 4;
+  const row = Math.floor((tier - 1) / 4);
+  const position = `${column * (100 / 3)}% ${row * 100}%`;
+  return `<span class="${className} item-art" style="--item-sheet:url('${atlas}');--item-position:${position}" aria-hidden="true"></span>`;
 }
 
 function describeItem(cell) {
@@ -968,7 +1265,7 @@ window.addEventListener('pointermove', event => {
     drag.moved = true;
     drag.ghost = document.createElement('div');
     drag.ghost.className = 'drag';
-    drag.ghost.textContent = FAMILIES[drag.cell.fam].items[drag.cell.tier - 1];
+    drag.ghost.innerHTML = itemArtMarkup(drag.cell.fam, drag.cell.tier, 'drag-item-art');
     document.body.appendChild(drag.ghost);
   }
   if (drag.ghost) {
@@ -1037,6 +1334,49 @@ function showFloat(text) {
   window.setTimeout(() => element.remove(), 1100);
 }
 
+function captureElementPoint(element) {
+  const rect = element?.getBoundingClientRect?.();
+  return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : { x: window.innerWidth / 2, y: window.innerHeight * 0.45 };
+}
+
+function flyReward({ sourceElement, sourcePoint, targetElement, type = 'coins', amount = 0 }) {
+  if (!targetElement) return;
+  const start = sourcePoint || captureElementPoint(sourceElement);
+  const end = captureElementPoint(targetElement);
+  const icons = { coins:'🪙', stars:'⭐', energy:'⚡', pearls:'💎', xp:'✦' };
+  const reward = document.createElement('div');
+  reward.className = `reward-fly reward-fly-${type}`;
+  reward.textContent = `${icons[type] || '✦'}${amount ? ` +${amount}` : ''}`;
+  reward.setAttribute('aria-hidden', 'true');
+  reward.style.left = `${start.x}px`;
+  reward.style.top = `${start.y}px`;
+  document.body.appendChild(reward);
+  targetElement.classList.add('reward-target-pop');
+  window.setTimeout(() => targetElement.classList.remove('reward-target-pop'), 700);
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || typeof reward.animate !== 'function') {
+    window.setTimeout(() => reward.remove(), 80);
+    return;
+  }
+  const animation = reward.animate([
+    { left:`${start.x}px`, top:`${start.y}px`, opacity:1, transform:'translate(-50%,-50%) scale(.9) rotate(-7deg)' },
+    { left:`${(start.x + end.x) / 2 + (type === 'stars' ? -15 : 12)}px`, top:`${Math.min(start.y,end.y) - 34}px`, opacity:1, transform:'translate(-50%,-50%) scale(1.08) rotate(8deg)', offset:.58 },
+    { left:`${end.x}px`, top:`${end.y}px`, opacity:.15, transform:'translate(-50%,-50%) scale(.48) rotate(18deg)' }
+  ], { duration:640, easing:'cubic-bezier(.2,.72,.28,1)', fill:'forwards' });
+  animation.onfinish = () => reward.remove();
+}
+
+function animateOrderRewards(sourcePoint, task) {
+  const rewards = [
+    ['coins', task.coins, '.coin-pill'],
+    ['energy', task.energy, '.energy-pill'],
+    ['stars', task.stars, '.star-pill'],
+    ['pearls', task.pearls || 0, '.gem-pill']
+  ].filter(([, amount]) => amount > 0);
+  rewards.forEach(([type, amount, selector], index) => {
+    window.setTimeout(() => flyReward({ sourcePoint, targetElement:container.querySelector(selector), type, amount }), index * 85);
+  });
+}
+
 function showModal(content, bind) {
   const modal = document.createElement('div');
   modal.className = 'modal';
@@ -1061,6 +1401,7 @@ const STORY_SCENES = [
 ];
 
 function storyArtwork(chapter) {
+  if (chapter?.art && /^assets\/[\w/-]+\.webp$/.test(chapter.art)) return chapter.art;
   const chapterIndex = CHAPTERS.indexOf(chapter);
   if (chapterIndex >= 0) return STORY_SCENES[chapterIndex % STORY_SCENES.length];
   if (chapter?.title === 'The Harbor Comes Home') return 'assets/restore-pier-scene.webp';
@@ -1070,7 +1411,12 @@ function storyArtwork(chapter) {
 function showDialogue(chapter, onClose = () => {}) {
   let lineIndex = 0;
   let closed = false;
+  let isTyping = false;
+  let typewriterTimer = 0;
+  const lines = Array.isArray(chapter?.lines) && chapter.lines.length ? chapter.lines : [['mae', 'The harbor always has another story to tell.']];
   const sceneArt = storyArtwork(chapter);
+  const chapterIndex = CHAPTERS.indexOf(chapter);
+  const kicker = chapter.isOrderMoment ? 'A NEIGHBOR’S NOTE · HARBOR JOURNAL' : chapterIndex >= 0 ? `CHAPTER ${chapterIndex + 1} · ILLUSTRATED STORY` : 'HARBOR JOURNAL · ILLUSTRATED STORY';
   const modal = document.createElement('div');
   modal.className = 'story-scene';
   modal.setAttribute('role', 'dialog');
@@ -1079,23 +1425,54 @@ function showDialogue(chapter, onClose = () => {}) {
   function finishDialogue() {
     if (closed) return;
     closed = true;
+    window.clearInterval(typewriterTimer);
     modal.remove();
     onClose();
   }
+  function advanceLine() {
+    if (isTyping) {
+      window.clearInterval(typewriterTimer);
+      modal.querySelector('.story-dialogue').textContent = String(lines[lineIndex]?.[1] || '');
+      modal.querySelector('.story-bottom b').textContent = 'Tap to continue';
+      isTyping = false;
+      return;
+    }
+    beep(660);
+    lineIndex += 1;
+    if (lineIndex >= lines.length) finishDialogue();
+    else drawLine();
+  }
   function drawLine() {
-    const [speaker, text] = chapter.lines[lineIndex];
+    window.clearInterval(typewriterTimer);
+    const [rawSpeaker, rawText] = lines[lineIndex] || ['mae', ''];
+    const speaker = CHARS[rawSpeaker] ? rawSpeaker : 'mae';
+    const text = String(rawText || '');
     const character = CHARS[speaker];
     const side = lineIndex % 2 === 0 ? 'right' : 'left';
     const speakerColor = character.accent || '#e879aa';
-    const progress = ((lineIndex + 1) / chapter.lines.length) * 100;
-    modal.innerHTML = `<div class="story-backdrop" style="--dialogue-art:url('${sceneArt}')" aria-hidden="true"></div><div class="story-topline"><div><small>HARBOR JOURNAL · ILLUSTRATED STORY</small><b>${chapter.title}</b></div><button class="story-skip" aria-label="Skip story">▶▶</button></div><button class="story-advance ${side} speaker-${speaker}" data-speaker="${speaker}" style="--speaker-accent:${speakerColor}" aria-label="Continue story"><span class="story-character">${characterPortrait(speaker, 'story-portrait')}<b>${character.name}</b></span><span class="story-bubble"><span>${text}</span></span></button><div class="story-bottom"><div class="story-progress-track"><span style="width:${progress}%"></span></div><b>Tap anywhere to continue</b><small>${lineIndex + 1} / ${chapter.lines.length}</small></div>`;
+    const progress = ((lineIndex + 1) / lines.length) * 100;
+    modal.innerHTML = `<div class="story-backdrop" style="--dialogue-art:url('${sceneArt}')" aria-hidden="true"></div><div class="story-topline"><div><small>${kicker}</small><b>${chapter.title || 'Harbor Whispers'}</b></div><button class="story-skip" aria-label="Skip story">▶▶</button></div><button class="story-advance ${side} speaker-${speaker}" data-speaker="${speaker}" style="--speaker-accent:${speakerColor}" aria-label="Continue story"><span class="story-character">${characterPortrait(speaker, 'story-portrait')}<b>${character.name}</b></span><span class="story-bubble"><span class="story-dialogue" aria-live="polite"></span></span></button><div class="story-bottom"><div class="story-progress-track"><span style="width:${progress}%"></span></div><b>Tap to finish line</b><small>${lineIndex + 1} / ${lines.length}</small></div>`;
+    const dialogueText = modal.querySelector('.story-dialogue');
+    const characters = Array.from(text);
+    let visibleCharacters = 0;
+    isTyping = true;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      dialogueText.textContent = text;
+      modal.querySelector('.story-bottom b').textContent = 'Tap to continue';
+      isTyping = false;
+    } else {
+      typewriterTimer = window.setInterval(() => {
+        visibleCharacters = Math.min(characters.length, visibleCharacters + 2);
+        dialogueText.textContent = characters.slice(0, visibleCharacters).join('');
+        if (visibleCharacters >= characters.length) {
+          window.clearInterval(typewriterTimer);
+          modal.querySelector('.story-bottom b').textContent = 'Tap to continue';
+          isTyping = false;
+        }
+      }, 28);
+    }
     modal.querySelector('.story-skip').onclick = finishDialogue;
-    modal.querySelector('.story-advance').onclick = () => {
-      beep(660);
-      lineIndex += 1;
-      if (lineIndex >= chapter.lines.length) finishDialogue();
-      else drawLine();
-    };
+    modal.querySelector('.story-advance').onclick = advanceLine;
     modal.onclick = event => {
       if (!event.target.closest('.story-advance, .story-skip')) modal.querySelector('.story-advance').click();
     };
@@ -1111,7 +1488,7 @@ function showEventHelp() {
 }
 
 function showGuide() {
-  showModal(`<div class="sheet-heading"><div><div class="story-kicker">YOUR HARBOR, YOUR PACE</div><h2>How to play</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="guide-section"><b>1 · Make and merge</b><p>Tap a generator to spend 1⚡. Merge two matching items to build the goods needed for a request. Drag a match together, or tap one item and then its match. Tap the selected item again to open details, storage and larger-merge options.</p></div><div class="guide-section"><b>2 · Help neighbors and rebuild</b><p>Deliver requests for coins and ⭐. Use <b>Restore</b> to explore the ten-landmark harbor map and fund step-by-step improvements. Items, inventory, generators and family mastery are in <b>Items</b>; daily goals and achievements are in <b>Goals</b>.</p></div><div class="guide-section"><b>3 · Finish the campaign, then free play</b><p>Find all ${CHAPTERS.length} chapters <em>and</em> complete all ${totalRestorationCount()} harbor improvements to unlock the epilogue. After that, keep merging on either board at your own pace.</p></div><div class="guide-section guide-calm"><b>No fail state</b><p>No lives, countdown, or losing screen. Energy refills over time; you can pause and come back whenever you like. Your progress is saved on this device.</p></div><div class="guide-actions"><button class="btn primary replay-guide">Replay the first-time guide</button><button class="btn fresh-save">Start a new harbor…</button></div>`, modal => {
+  showModal(`<div class="sheet-heading"><div><div class="story-kicker">YOUR HARBOR, YOUR PACE</div><h2>How to play</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="guide-section"><b>1 · Make and merge</b><p>Tap a generator to spend 1⚡. Merge two matching items to build the goods needed for a request. Drag a match together, or tap one item and then its match. Tap the selected item again to open details, storage and larger-merge options. Matching pairs glow after a short pause.</p></div><div class="guide-section"><b>2 · Help neighbors and rebuild</b><p>Tap the green <b>SERVE</b> button on a ready neighbor card to deliver immediately, including requests for multiple items. Tap the card itself to review the merge chain and rewards. Deliver requests for coins and ⭐. Tap <b>Repairs</b> at the bottom to go straight to the next worksite in the story. Only the current repair is available; its cost and any shortage are shown before you begin. Finish it to reveal the next story-led improvement. The <b>Story journal &amp; repairs</b> option in <b>More</b> still tracks chores, chapters and repair progress. Use the left <b>Inventory</b> button to store or retrieve items. Daily goals and other harbor options are in <b>More</b>.</p></div><div class="guide-section"><b>3 · Finish the campaign, then free play</b><p>Find all ${CHAPTERS.length} chapters <em>and</em> complete all ${totalRestorationCount()} harbor improvements to unlock the epilogue. After that, keep merging on either board at your own pace.</p></div><div class="guide-section guide-calm"><b>No fail state</b><p>No lives, countdown, or losing screen. Energy refills over time; you can pause and come back whenever you like. Your progress is saved on this device.</p></div><div class="guide-actions"><button class="btn primary replay-guide">Replay the first-time guide</button><button class="btn fresh-save">Start a new harbor…</button></div>`, modal => {
     modal.querySelector('.close-sheet').onclick = () => modal.remove();
     modal.querySelector('.replay-guide').onclick = () => {
       modal.remove();
@@ -1150,20 +1527,46 @@ function ensureDailyObjectives() {
 }
 
 function renderCollectionTabs(activeTab) {
-  const tabs = [['items','Items'],['inventory','Inventory'],['generators','Generators'],['mastery','Mastery']];
+  const tabs = [['items','Items'],['generators','Generators'],['mastery','Mastery']];
   return `<div class="collection-tabs" role="tablist">${tabs.map(([id,label]) => `<button type="button" data-collection-tab="${id}" class="${activeTab === id ? 'active' : ''}" role="tab" aria-selected="${activeTab === id}">${label}</button>`).join('')}</div>`;
 }
 
-function renderCollectionPage(tab) {
-  if (tab === 'inventory') {
-    const entries = state.inventory.map((entry,index) => {
-      const family = FAMILIES[entry.fam];
-      const item = family?.tiers[entry.tier - 1];
-      if (!item) return '';
-      return `<div class="inventory-entry"><span class="inventory-icon">${item.icon}</span><div class="entry-copy"><b>${item.name}</b><small>${family.name} · Tier ${entry.tier} · ${entry.locked ? 'stored locked' : 'ready to retrieve'}</small></div><div class="item-detail-actions"><button class="btn primary entry-action" data-withdraw="${index}">Take out</button><button class="btn entry-action" data-inventory-sell="${index}">Sell</button></div></div>`;
-    }).join('');
-    return `<p class="panel-note">${state.inventory.length}/${state.inventoryCapacity} spaces used. Stored items are safe from board clutter; retrieve them to the Town board when a space is free.</p><div class="inventory-list">${entries || '<div class="guide-section"><b>Your inventory is empty</b><p>Tap an item on the board, then choose Store to keep it here.</p></div>'}</div>`;
+function renderInventoryCabinet() {
+  const itemTiles = state.inventory.map((entry,index) => {
+    const family = FAMILIES[entry.fam];
+    const item = family?.tiers[entry.tier - 1];
+    if (!item) return '';
+    return `<div class="cabinet-slot" role="listitem">
+      <button class="cabinet-item" type="button" data-withdraw="${index}" aria-label="Take ${item.name} out of inventory" title="${item.name} · Tier ${entry.tier} · tap to take out">
+        ${itemArtMarkup(entry.fam,entry.tier,'cabinet-item-art')}
+        <small class="cabinet-tier">T${entry.tier}</small>
+        ${entry.locked ? '<span class="cabinet-lock" aria-label="Locked">🔒</span>' : ''}
+      </button>
+      <button class="cabinet-sell" type="button" data-inventory-sell="${index}" aria-label="Sell ${item.name} for ${item.sellValue} coins" title="Sell for ${item.sellValue} coins">🪙</button>
+    </div>`;
+  }).filter(Boolean);
+  const newSlot = `<button class="cabinet-new-slot" type="button" data-new-storage ${state.inventoryCapacity >= 80 ? 'disabled' : ''} aria-label="Add five inventory slots with an Extra Storage booster">
+    <span class="cabinet-slot-plus">＋</span><b>New Slot</b><small>EXTRA STORAGE</small>
+  </button>`;
+  const shelfRows = [];
+  for (let start = 0; start < itemTiles.length; start += 4) {
+    shelfRows.push(itemTiles.slice(start,start + 4));
   }
+  if (!shelfRows.length || shelfRows[shelfRows.length - 1].length === 4) shelfRows.push([]);
+  const finalRow = shelfRows[shelfRows.length - 1];
+  while (finalRow.length < 3) finalRow.push('<span class="cabinet-spacer" aria-hidden="true"></span>');
+  finalRow.push(newSlot);
+  const shelves = shelfRows.map(row => `<div class="cabinet-shelf-row" role="group">${row.join('')}</div>`).join('');
+  return `<div class="cabinet-capacity"><span>${state.inventory.length ? 'STORED ITEMS' : 'HARBOR STORAGE'}</span><b>${state.inventory.length} / ${state.inventoryCapacity}</b></div>
+    <div class="cabinet-interior"><div class="cabinet-scroll" role="list" aria-label="Stored items on the inventory shelves">
+      ${state.inventory.length ? '' : '<div class="cabinet-empty-note"><span>🧺</span><b>Your shelves are ready</b><small>Store an item from the board to see it here.</small></div>'}
+      ${shelves}
+    </div></div>
+    <div class="cabinet-instruction">Tap an item to return it to your Town board <span aria-hidden="true">✿</span></div>`;
+}
+
+function renderCollectionPage(tab) {
+  if (tab === 'inventory') return renderInventoryCabinet();
 
   if (tab === 'generators') {
     const rows = GENERATOR_DEFS.map(definition => {
@@ -1196,7 +1599,7 @@ function renderCollectionPage(tab) {
     const discovered = family.tiers.filter(item => state.discoveredItems.includes(item.id)).length;
     const chain = family.tiers.map(item => {
       const found = state.discoveredItems.includes(item.id);
-      return `<div class="collection-tier" title="${found ? item.name : `Undiscovered tier ${item.tier}`}"><span>${found ? item.icon : '◇'}</span><small>${found ? item.name : `Tier ${item.tier}`}</small></div>`;
+      return `<div class="collection-tier" title="${found ? item.name : `Undiscovered tier ${item.tier}`}"><span>${found ? itemArtMarkup(id,item.tier,'collection-item-art') : '◇'}</span><small>${found ? item.name : `Tier ${item.tier}`}</small></div>`;
     }).join('<span class="tree-arrow">›</span>');
     return `<section class="collection-family ${unlocked ? '' : 'locked'}"><div class="collection-family-head"><span>${family.icon}</span><b>${family.name}</b><small>${unlocked ? `${discovered}/8 discovered` : 'Story locked'}</small></div><div class="collection-chain">${chain}</div></section>`;
   }).join('');
@@ -1205,13 +1608,21 @@ function renderCollectionPage(tab) {
 
 function showCollection(initialTab = 'items') {
   let activeTab = initialTab;
-  const modal = showModal(`<div class="sheet-heading"><div><div class="story-kicker">MERGE COLLECTION</div><h2>Harbor collection</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="collection-body"></div>`, root => {
-    root.classList.add('collection-modal');
-    root.querySelector('.close-sheet').onclick = () => root.remove();
+  const inventoryView = initialTab === 'inventory';
+  const content = inventoryView
+    ? `<section class="inventory-cabinet" aria-label="Inventory cabinet">
+        <header class="cabinet-header"><span class="cabinet-flower flower-left" aria-hidden="true">🌼</span><div class="cabinet-plaque"><small>HARBOR STORAGE</small><b>Inventory</b></div><span class="cabinet-flower flower-right" aria-hidden="true">🌸</span><button class="btn cabinet-close" type="button" aria-label="Close inventory">✕</button></header>
+        <div class="collection-body"></div>
+        <footer class="cabinet-base" aria-hidden="true"><span>✿</span><span>✿</span></footer>
+      </section>`
+    : `<div class="sheet-heading"><div><div class="story-kicker">MERGE COLLECTION</div><h2>Harbor collection</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="collection-body"></div>`;
+  const modal = showModal(content, root => {
+    root.classList.add(inventoryView ? 'inventory-modal' : 'collection-modal');
+    root.querySelector(inventoryView ? '.cabinet-close' : '.close-sheet').onclick = () => root.remove();
   });
   const draw = () => {
     const body = modal.querySelector('.collection-body');
-    body.innerHTML = `${renderCollectionTabs(activeTab)}${renderCollectionPage(activeTab)}`;
+    body.innerHTML = inventoryView ? renderInventoryCabinet() : `${renderCollectionTabs(activeTab)}${renderCollectionPage(activeTab)}`;
     body.querySelectorAll('[data-collection-tab]').forEach(button => button.onclick = () => { activeTab = button.dataset.collectionTab; draw(); });
     body.querySelectorAll('[data-withdraw]').forEach(button => button.onclick = () => {
       const index = Number(button.dataset.withdraw);
@@ -1230,6 +1641,20 @@ function showCollection(initialTab = 'items') {
       modal.remove();
       feedbackMessage = 'Item returned from inventory to the Town board.';
       render(empty);
+    });
+    body.querySelector('[data-new-storage]')?.addEventListener('click', () => {
+      if (state.inventoryCapacity >= 80) return;
+      if (!(state.boosters.extraStorage > 0)) {
+        showModal(`<div class="sheet-heading"><div><div class="story-kicker">HARBOR STORAGE</div><h2>New shelf space</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><p>An Extra Storage booster adds five inventory spaces. Your stored items are safe here; you can also sell or return them to the Town board at any time.</p>`, info => info.querySelector('.close-sheet').onclick = () => info.remove());
+        return;
+      }
+      state.boosters.extraStorage -= 1;
+      state.inventoryCapacity = Math.min(80,state.inventoryCapacity + 5);
+      feedbackMessage = 'Extra Storage added five spaces to the cabinet.';
+      showFloat('＋5 inventory spaces');
+      saveState();
+      render();
+      draw();
     });
     body.querySelectorAll('[data-inventory-sell]').forEach(button => button.onclick = () => {
       const index = Number(button.dataset.inventorySell);
@@ -1449,7 +1874,7 @@ function refreshTutorial() {
         ? { title: 'Merge matching treats', text: `Drag one highlighted ${mergeItem} onto its match. You can also tap the pair one after the other.`, action: 'Your turn ✨' }
         : tutorialStep === 2
           ? { title: 'Uncover a straw-covered treat', text: hasWebbedTreat ? 'Some treats are tucked beneath bundles of straw. Merge an uncovered match into the covered treat to sweep the straw aside and reveal its upgraded surprise.' : 'Some treats are hidden under straw. Match an uncovered treat into one to uncover and upgrade it.', action: 'Got it ›' }
-          : { title: 'Help the townsfolk', text: 'Tap a request to see what your neighbor needs and what it pays. Deliver treats for coins and stars; tougher requests sometimes return a little energy too.', action: 'Your turn ✨' };
+          : { title: 'Help the townsfolk', text: 'Tap a ready request’s green SERVE button to deliver it right away. Tap the neighbor card itself to review the item chain and rewards. Deliver treats for coins and stars; tougher requests sometimes return a little energy too.', action: 'Your turn ✨' };
   const stepNumber = tutorialStep + 1;
   const showContinue = noPair || tutorialStep === 2;
   tutorialPanel.innerHTML = `<div class="tutorial-avatar"><img src="${CHARS.iris.img}" alt="Iris"><b>Iris</b></div><div class="tutorial-copy"><small>HOW TO PLAY · ${stepNumber} / 4</small><h2>${content.title}</h2><p>${content.text}</p><div class="tutorial-actions">${showContinue ? '<button class="tutorial-continue">Continue ›</button>' : `<span>${content.action}</span>`}<button class="tutorial-skip">Skip guide</button></div></div>`;
@@ -1480,87 +1905,248 @@ function renderLocationStrip() {
   }).join('');
 }
 
-function showRestorationMoment(location, level) {
+function restorationArt(location, level) {
+  const film = RESTORATION_FILMS[location.film] || RESTORATION_FILMS.cafe;
+  const detail = repairDetailState(location.id, level) || {};
+  let art;
+  if (location.id === 'cafe' && level === 1) art = {
+    before:'assets/restore-cafe-before.webp', after:'assets/restore-cafe-after-cleanup.webp', interior:false
+  };
+  else if (location.id === 'cafe' && level === 2) art = {
+    before:'assets/restore-cafe-after-cleanup.webp', after:'assets/restore-cafe-scene.webp', interior:false
+  };
+  else if (location.id === 'cafe' && level === 4) art = {
+    before:'assets/restore-cafe-room-before.webp', after:'assets/restore-cafe-room-after.webp', interior:true, floorChoice:true
+  };
+  else if (location.id === 'cafe' && level === 6) art = {
+    before:'assets/restore-cafe-kitchen-before.webp', after:'assets/restore-cafe-kitchen-after.webp', interior:true, kitchen:true
+  };
+  else if (location.id === 'garden' && level === 1) art = {
+    before:'assets/restore-garden-before.webp', after:'assets/restore-garden-after-clearing.webp', interior:false
+  };
+  else if (location.id === 'garden' && level === 2) art = {
+    before:'assets/restore-garden-after-clearing.webp', after:'assets/restore-garden-scene.webp', interior:false
+  };
+  else {
+    const alreadyRestored = (Number(state.levels[location.id]) || 0) > 0;
+    art = { before:alreadyRestored ? film.art : film.beforeArt, after:film.art, interior:false };
+  }
+  return { ...art, ...detail };
+}
+
+function restorationSceneLines(location, kind, requestedLevel = 0) {
+  if (kind === 'intro') {
+    const level = requestedLevel || state.pendingRestoration?.level || 1;
+    const fullScene = RESTORATION_DIALOGUE[location.id] || RESTORATION_DIALOGUE.cafe;
+    if (level === 1 || level === 4 || level === 8) return fullScene;
+    const stage = RESTORATION_STAGES[location.id]?.[level - 1];
+    const film = RESTORATION_FILMS[location.film] || RESTORATION_FILMS.cafe;
+    return [[film.helper, `${stage?.[0] || 'One more repair'} is a small job, but it will make this place feel more like home.`]];
+  }
+  const cast = RESTORATION_CAST[location.id] || RESTORATION_CAST.cafe;
+  const speaker = cast[0] || 'mae';
+  const helper = cast[1] || 'rowan';
+  const stage = RESTORATION_STAGES[location.id][state.pendingRestoration?.level - 1];
+  const design = RESTORATION_DESIGNS[location.id]?.[state.pendingRestoration?.level];
+  const selected = design?.choices.find(choice => choice.id === state.locationStyles?.[location.id]?.[design.key]);
+  const firstLine = selected
+    ? `The ${selected.name.toLowerCase()} finish feels just right. We made this place ours.`
+    : `${stage?.[0] || 'The repair'} is ready. You can feel the harbor coming back to life.`;
+  const secondLine = (RESTORATION_FILMS[location.film] || RESTORATION_FILMS.cafe).words[2];
+  return [[speaker, firstLine], [helper, secondLine]];
+}
+
+function showRestorationMoment(location, level, resume = false) {
+  if (!location || !RESTORATION_STAGES[location.id]?.[level - 1]) return;
+  saveState();
   const stage = RESTORATION_STAGES[location.id][level - 1];
-  const film = RESTORATION_FILMS[location.film] || RESTORATION_FILMS[location.id] || RESTORATION_FILMS.cafe;
-  const helper = CHARS[film.helper] || CHARS.mae;
-  const isCafeFloorRepair = location.id === 'cafe' && level === 4;
-  const beforeArt = isCafeFloorRepair ? 'assets/restore-cafe-room-before.webp' : film.beforeArt;
-  const afterArt = isCafeFloorRepair ? 'assets/restore-cafe-room-after.webp' : film.art;
-  const progress = location.decos.map((deco, index) => `<span class="${index < level ? 'built' : 'locked-deco'}">${deco}</span>`).join('');
-  const frameNames = ['BEFORE THE REPAIR', 'NEIGHBORS AT WORK', 'THE BIG REVEAL'];
-  const frameTitles = ['A fresh start', 'Making it together', 'Look what we made!'];
-  const frameIcons = ['🌧️', film.actions?.[level - 1] || '🛠️', location.decos[level - 1] || '✨'];
-  const floorControls = isCafeFloorRepair ? `<div class="floor-picker"><small>CHOOSE MAE’S CAFÉ FLOOR</small><div class="floor-choices" role="group" aria-label="Choose café floor color">${renderCafeFloorChoices()}</div></div>` : '';
-  showModal(`<div class="restoration-moment" style="--repair-accent:${film.accent}">
-    <div class="repair-film-heading"><div class="repair-place"><span>${location.icon}</span><b>${location.name}</b><small>${level} / ${location.decos.length}</small></div><button class="repair-skip" type="button" aria-label="Skip to the finished scene">Skip <span>⏭</span></button></div>
-    <div class="repair-scene repair-${location.id}" data-beat="0" ${isCafeFloorRepair ? `data-floor-preview style="--floor-tone:${getCafeFloor().color}"` : ''} role="group" aria-label="${location.name} restoration story">
-      <img class="repair-art" src="${beforeArt}" alt="${isCafeFloorRepair ? 'Storm-worn interior of Mae’s café' : `Storm-damaged ${location.name} before the repair}`}" fetchpriority="high">
-      <img class="repair-after-art" src="${afterArt}" alt="${location.name} restored after the repair}">
-      ${isCafeFloorRepair ? '<span class="repair-floor" aria-hidden="true"></span>' : ''}
-      <span class="repair-weather" aria-hidden="true"></span>
-      <div class="repair-film-speech"><small>${helper.name}</small><b></b></div>
-      <span class="repair-action-stamp" aria-hidden="true">🌧️</span>
-      <div class="repair-frame-label"><small>BEFORE THE REPAIR</small><b>A fresh start</b></div>
-      <img class="repair-character" src="${helper.img}" alt="${helper.name} helping rebuild the ${location.name.toLowerCase()}">
-    </div>
-    <div class="repair-film-steps" aria-label="Scene progress"><span class="active" aria-current="step" aria-label="Before">🌧️</span><span aria-label="At work">🛠️</span><span aria-label="Restored">✨</span></div>
-    <div class="repair-copy"><h2>${stage[0]}</h2><div class="deco repair-progress" aria-label="${level} of ${location.decos.length} improvements">${progress}</div><div class="repair-reward">${location.decos[level - 1]} Added · +1⭐</div></div>
-    ${floorControls}
-    <button class="btn repair-continue" type="button">Next scene ›</button>
-  </div>`, modal => {
-    modal.classList.add('restoration-modal', 'keep-open');
-    const scene = modal.querySelector('.repair-scene');
-    const stepLabels = [...modal.querySelectorAll('.repair-film-steps span')];
-    const skipButton = modal.querySelector('.repair-skip');
-    const continueButton = modal.querySelector('.repair-continue');
-    const frameLabel = modal.querySelector('.repair-frame-label');
-    const speech = modal.querySelector('.repair-film-speech b');
-    let beat = 0;
-    let beatTimer = 0;
+  const film = RESTORATION_FILMS[location.film] || RESTORATION_FILMS.cafe;
+  const design = RESTORATION_DESIGNS[location.id]?.[level] || null;
+  const art = restorationArt(location, level);
+  const cast = RESTORATION_CAST[location.id] || RESTORATION_CAST.cafe;
+  const cost = upgradeCost(location);
+  const coinReward = 20 + level * 5;
+  let phase = resume && state.pendingRestoration?.locationId === location.id
+    ? state.pendingRestoration.phase === 'design' ? 'design' : 'complete'
+    : 'objective';
+  let selectedChoice = 0;
+  let sceneTimer = 0;
+  let insufficient = false;
+  if (design) {
+    const savedStyle = state.locationStyles?.[location.id]?.[design.key] || (design.key === 'floor' && state.cafeFloor !== 'honey' ? state.cafeFloor : '');
+    const savedIndex = design.choices.findIndex(choice => choice.id === savedStyle);
+    selectedChoice = savedIndex >= 0 ? savedIndex : 0;
+  }
 
-    const setBeat = nextBeat => {
-      beat = Math.max(0, Math.min(2, nextBeat));
-      scene.dataset.beat = String(beat);
-      scene.querySelector('.repair-action-stamp').textContent = frameIcons[beat];
-      frameLabel.querySelector('small').textContent = frameNames[beat];
-      frameLabel.querySelector('b').textContent = frameTitles[beat];
-      speech.textContent = film.words[beat];
-      stepLabels.forEach((label, index) => {
-        label.classList.toggle('active', index === beat);
-        if (index === beat) label.setAttribute('aria-current', 'step');
-        else label.removeAttribute('aria-current');
-      });
-      skipButton.hidden = beat === 2;
-      continueButton.textContent = beat === 2 ? 'Back to the harbor' : 'Next scene ›';
-    };
-    const scheduleNextBeat = () => {
-      window.clearTimeout(beatTimer);
-      if (beat < 2) beatTimer = window.setTimeout(() => {
-        setBeat(beat + 1);
-        scheduleNextBeat();
-      }, 1850);
-    };
+  const overlay = document.createElement('section');
+  overlay.className = 'restoration-scene-screen';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', `${location.name} restoration scene`);
+  document.body.appendChild(overlay);
 
-    bindCafeFloorChoices(modal);
-    skipButton.onclick = () => {
-      window.clearTimeout(beatTimer);
-      setBeat(2);
-    };
-    continueButton.onclick = () => {
-      if (beat < 2) {
-        setBeat(beat + 1);
-        scheduleNextBeat();
-        return;
-      }
-      window.clearTimeout(beatTimer);
-      modal.remove();
-      render();
-      advanceStory();
-    };
-    setBeat(0);
-    scheduleNextBeat();
-  });
+  function returnToBoard() {
+    window.clearTimeout(sceneTimer);
+    overlay.remove();
+    currentBoardKey = 'main';
+    selectedIndex = -1;
+    feedbackMessage = state.pendingRestoration ? 'Your restoration scene is saved. Open the Journal to continue whenever you like.' : 'Back at the harbor board. Your next restoration is ready when you are.';
+    saveState();
+    render();
+  }
+
+  function selectedDesign() {
+    return design?.choices[selectedChoice] || null;
+  }
+
+  function renderScene() {
+    if (!overlay.isConnected) return;
+    const choice = selectedDesign();
+    const baseStyle = choice || (location.id === 'cafe' ? getCafeFloor() : null);
+    const designColor = baseStyle?.color || film.accent;
+    const featureIcon = choice?.icon || location.decos[level - 1] || film.actions?.[level - 1] || '🛠️';
+    const imageActionsAvailable = phase === 'objective';
+    const restoredLevel = Math.min(location.decos.length, Number(state.levels[location.id]) || 0);
+    const progressPercent = Math.round(restoredLevel / location.decos.length * 100);
+    const castMarkup = cast.map((id,index) => {
+      const character = CHARS[id] || CHARS.mae;
+      return `<div class="restoration-cast-member cast-${index}" style="--cast-accent:${character.accent}"><img src="${character.img}" alt=""><b>${character.name}</b></div>`;
+    }).join('');
+    const choiceCards = design ? design.choices.map((option,index) => `
+      <button class="restoration-choice" type="button" data-restoration-choice="${index}" aria-label="Choose ${option.name}: ${option.description}" style="--choice-color:${option.color}">
+        <span class="restoration-choice-art" style="--scene-art:url('${art.after}')"><span class="restoration-choice-object">${option.icon}</span><i aria-hidden="true">${location.icon}</i></span>
+        <b>${option.name}</b><small>${option.description}</small>
+      </button>`).join('') : '';
+    let content = '';
+    if (phase === 'objective') {
+      const shortage = insufficient && state.coins < cost;
+      content = `<div class="restoration-card objective-card"><small class="restoration-kicker">CURRENT STORY OBJECTIVE · ${level} / ${location.decos.length}</small><h2>${stage[0]}</h2><p>${stage[1]}</p><div class="restoration-cost-row"><span>🪙 Repair materials</span><b>${cost}🪙</b></div>${shortage ? `<p class="restoration-inline-warning" role="status">Need ${cost - state.coins} more 🪙 to begin. Your Stars will not be spent. Tap Board to return and earn coins.</p>` : `<button class="btn restoration-action restoration-pay" type="button" data-restoration-pay>🪙 ${cost} · Make this repair</button><small class="restoration-reward-note">Earn +1⭐ · +${coinReward}🪙 · +20 XP with this repair</small>`}</div>`;
+    } else if (phase === 'work') {
+      content = `<div class="restoration-card work-card"><small class="restoration-kicker">THE REPAIR IS TAKING SHAPE</small><h2>${stage[0]}</h2><p>${stage[1]}</p></div>`;
+    } else if (phase === 'design') {
+      content = `<div class="restoration-card design-card"><small class="restoration-kicker">YOUR HARBOR · YOUR CHOICE</small><h2>${design?.title || 'Choose a finish'}</h2><p>${design?.prompt || ''}</p><div class="restoration-choices" role="group" aria-label="Choose a design">${choiceCards}</div><small class="restoration-reward-note">Tap a finish to save it and return to the game.</small></div>`;
+    } else {
+      const nextObjective = storyChoreContext().chore?.title || 'Help another neighbor and keep the harbor story moving.';
+      const locationComplete = level >= location.decos.length;
+      content = `<div class="restoration-card complete-card"><small class="restoration-kicker">${locationComplete ? `${location.name.toUpperCase()} RESTORED!` : 'RESTORATION COMPLETE'}</small><h2>${stage[0]}</h2><div class="restoration-earned"><span>⭐ <b>+1</b></span><span>🪙 <b>+${coinReward}</b></span><span>✦ <b>+20 XP</b></span></div><div class="restoration-next-objective"><small>NEW OBJECTIVE</small><b>${nextObjective}</b></div><button class="btn restoration-action restoration-home" type="button" data-restoration-finish>Back to the game</button></div>`;
+    }
+    const afterRepair = !imageActionsAvailable;
+    overlay.innerHTML = `<div class="restoration-shell" style="--repair-accent:${film.accent};--restoration-design-color:${designColor}">
+      <header class="restoration-topbar ${afterRepair ? 'after-repair' : ''}">${imageActionsAvailable ? '<button class="restoration-back" type="button" data-restoration-return aria-label="Return to the harbor board">‹ <span>Board</span></button>' : ''}<div class="restoration-location-title"><small>${afterRepair ? 'REPAIR COMPLETE' : `NEXT STORY REPAIR · CHAPTER ${Math.max(1,state.chapter)}`}</small><b>${location.icon} ${location.name}</b></div><span class="restoration-step-count">${Math.min(level,location.decos.length)} / ${location.decos.length}</span></header>
+      <div class="restoration-world ${art.interior ? 'cafe-interior' : ''} ${art.kitchen ? 'cafe-kitchen' : ''}" data-phase="${phase}" data-location="${location.id}" role="group" aria-label="${location.name} ${stage[0]} worksite">
+        <img class="restoration-world-before" src="${art.before}" alt="Before ${stage[0]}: ${art.beforeState || 'the current worksite'}" fetchpriority="high">
+        <img class="restoration-world-after" src="${art.after}" alt="After ${stage[0]}: ${art.afterState || 'the improvement is complete'}">
+        ${art.floorChoice && afterRepair ? '<span class="restoration-floor-wash" aria-hidden="true"></span>' : ''}
+        ${repairDetailMarkup(location.id, level, afterRepair)}
+        <div class="restoration-world-shade" aria-hidden="true"></div>
+        <div class="restoration-site-wallet" aria-label="Harbor resources"><span>🪙 <b>${state.coins}</b></span><span>⭐ <b>${state.stars}</b></span></div>
+        ${afterRepair ? `<div class="restoration-design-preview ${choice ? 'has-design' : ''}" aria-hidden="true"><span>${featureIcon}</span><small>${choice?.name || stage[0]}</small></div>` : ''}
+        <div class="restoration-cast" aria-label="Neighbors helping with the restoration">${castMarkup}</div>
+        <div class="restoration-story-progress" aria-label="${restoredLevel} of ${location.decos.length} repairs complete"><span>WORKSITE · ${progressPercent}% RESTORED</span><i><b style="width:${progressPercent}%"></b></i></div>
+        <div class="restoration-work-dust" aria-hidden="true"><i>✦</i><i>✧</i><i>✦</i><i>·</i><i>✧</i></div>
+      </div>
+      <main class="restoration-bottom">${content}</main>
+    </div>`;
+    overlay.querySelector('[data-restoration-return]')?.addEventListener('click', returnToBoard);
+    overlay.querySelector('[data-restoration-pay]')?.addEventListener('click', beginRestoration);
+    overlay.querySelectorAll('[data-restoration-choice]').forEach(button => button.onclick = () => {
+      selectedChoice = Number(button.dataset.restorationChoice);
+      confirmDesign();
+    });
+    overlay.querySelector('[data-restoration-finish]')?.addEventListener('click', completeRestorationScene);
+  }
+
+  function beginRestoration() {
+    if (state.coins < cost) {
+      insufficient = true;
+      phase = 'objective';
+      renderScene();
+      return;
+    }
+    insufficient = false;
+    state.coins -= cost;
+    state.levels[location.id] = Math.min(location.decos.length, (Number(state.levels[location.id]) || 0) + 1);
+    state.stars += 1;
+    state.starsToward += 1;
+    state.coins += coinReward;
+    grantXP(20);
+    state.stats.restorations = (state.stats.restorations || 0) + 1;
+    recordStoryAction('restorations');
+    updateDailyProgress('restorations');
+    checkAchievements();
+    playPop();
+    state.pendingRestoration = { locationId:location.id, level, phase:design ? 'design' : 'complete', designKey:design?.key || '' };
+    phase = 'work';
+    saveState();
+    renderScene();
+    sceneTimer = window.setTimeout(finishWork, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 720);
+  }
+
+  function finishWork() {
+    window.clearTimeout(sceneTimer);
+    phase = design ? 'design' : 'complete';
+    if (state.pendingRestoration) state.pendingRestoration.phase = phase;
+    saveState();
+    renderScene();
+  }
+
+  function confirmDesign() {
+    const choice = selectedDesign();
+    if (!choice || !design) return;
+    if (!state.locationStyles[location.id]) state.locationStyles[location.id] = {};
+    state.locationStyles[location.id][design.key] = choice.id;
+    if (location.id === 'cafe' && design.key === 'floor') state.cafeFloor = choice.id;
+    if (state.pendingRestoration) state.pendingRestoration.phase = 'complete';
+    phase = 'complete';
+    playPop();
+    saveState();
+    renderScene();
+  }
+
+  function completeRestorationScene() {
+    const sourcePoint = captureElementPoint(overlay.querySelector('.repair-detail-after-result') || overlay.querySelector('.restoration-design-preview'));
+    state.pendingRestoration = null;
+    saveState();
+    window.clearTimeout(sceneTimer);
+    overlay.remove();
+    currentBoardKey = 'main';
+    selectedIndex = -1;
+    feedbackMessage = `${location.name} improved. The next harbor story is waiting in the Journal.`;
+    render();
+    const rewards = [['coins',coinReward,'.coin-pill'],['stars',1,'.star-pill'],['xp',20,'.profile-badge']];
+    rewards.forEach(([type,amount,selector],index) => window.setTimeout(() => flyReward({sourcePoint,targetElement:container.querySelector(selector),type,amount}), index * 85));
+    showFloat(`${location.name} restored · +1⭐ +${coinReward}🪙 +20 XP`);
+    advanceStory();
+  }
+
+  renderScene();
+}
+
+function showLocationVisit(location) {
+  const level = Math.min(location.decos.length, Number(state.levels[location.id]) || 0);
+  if (!level) return showRestorationMoment(location, 1);
+  const film = RESTORATION_FILMS[location.film] || RESTORATION_FILMS.cafe;
+  const art = location.id === 'cafe' && level >= 6
+    ? 'assets/restore-cafe-kitchen-after.webp'
+    : location.id === 'cafe' && level >= 4
+      ? 'assets/restore-cafe-room-after.webp'
+      : film.art;
+  const cast = RESTORATION_CAST[location.id] || RESTORATION_CAST.cafe;
+  const styles = { ...(state.locationStyles?.[location.id] || {}) };
+  const styleLevel = level >= 8 ? 8 : level >= 4 ? 4 : 0;
+  const styleData = RESTORATION_DESIGNS[location.id]?.[styleLevel];
+  const savedChoice = styleData?.choices.find(choice => choice.id === (styleData.key === 'floor' ? state.cafeFloor : styles[styleData.key]));
+  const cafeFinish = location.id === 'cafe' && styleLevel >= 4 ? getCafeFloor() : null;
+  const chosen = cafeFinish ? { name:cafeFinish.name, color:cafeFinish.color, icon:savedChoice?.icon || '🪵' } : savedChoice;
+  if (cafeFinish && styles.floor) styles.floor = state.cafeFloor;
+  const overlay = document.createElement('section');
+  overlay.className = 'restoration-scene-screen';
+  overlay.setAttribute('role','dialog');
+  overlay.setAttribute('aria-modal','true');
+  overlay.setAttribute('aria-label',`Visit restored ${location.name}`);
+  overlay.innerHTML = `<div class="restoration-shell restoration-visit" style="--repair-accent:${film.accent};--restoration-design-color:${chosen?.color || film.accent}"><header class="restoration-topbar"><button class="restoration-back" type="button" data-visit-close>‹ <span>Board</span></button><div class="restoration-location-title"><small>YOUR HARBOR · ${level} IMPROVEMENTS</small><b>${location.icon} ${location.name}</b></div><span class="restoration-step-count">${level} / ${location.decos.length}</span></header><div class="restoration-world ${location.id === 'cafe' && level >= 4 ? 'cafe-interior' : ''} ${location.id === 'cafe' && level >= 6 ? 'cafe-kitchen' : ''}" data-phase="complete" data-location="${location.id}" role="img" aria-label="Restored ${location.name} with your saved design"><img class="restoration-world-before" src="${art}" alt=""><img class="restoration-world-after" src="${art}" alt="${location.name}, restored"><div class="restoration-world-shade" aria-hidden="true"></div>${location.id === 'cafe' && level >= 4 && level < 6 ? `<span class="restoration-floor-wash" style="--restoration-design-color:${getCafeFloor().color}" aria-hidden="true"></span>` : ''}<div class="restoration-design-preview has-design"><span>${chosen?.icon || location.decos[level - 1]}</span><small>${chosen?.name || 'A harbor improvement'}</small></div><div class="restoration-cast">${cast.map((id,index)=>`<div class="restoration-cast-member cast-${index}" style="--cast-accent:${CHARS[id].accent}"><img src="${CHARS[id].img}" alt=""><b>${CHARS[id].name}</b></div>`).join('')}</div><div class="restoration-progress-dots">${location.decos.map((deco,index)=>`<span class="${index < level ? 'built' : 'locked-deco'}">${deco}</span>`).join('')}</div></div><main class="restoration-bottom"><div class="restoration-card visit-card"><small class="restoration-kicker">A PLACE MADE BY THE HARBOR</small><h2>${location.name} feels like home.</h2><p>${chosen ? `Your ${chosen.name.toLowerCase()} finish is part of the scene.` : `${level} of ${location.decos.length} improvements are complete.`}</p><div class="location-style-history">${Object.entries(styles).map(([key,value])=>`<span>${key.replaceAll('-',' ')} · <b>${String(value).replaceAll('-',' ')}</b></span>`).join('') || `<span>${location.decos.slice(0,level).join('  ')}</span>`}</div><button class="btn restoration-action" type="button" data-visit-close>Back to the harbor board</button></div></main></div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelectorAll('[data-visit-close]').forEach(button => button.onclick = () => { overlay.remove(); currentBoardKey = 'main'; render(); });
 }
 
 function showCafeFloorCustomizer() {
@@ -1577,49 +2163,84 @@ function showCafeFloorCustomizer() {
   });
 }
 
-function showLocations() {
-  const rows = LOCATIONS.map(location => {
-    const level = Math.min(location.decos.length, Number(state.levels[location.id]) || 0);
-    const done = level >= location.decos.length;
-    const unlocked = isLocationUnlocked(location);
-    const decorations = location.decos.map((emoji, index) => `<span class="${index < level ? 'built' : 'locked-deco'}">${emoji}</span>`).join('');
-    const nextStage = RESTORATION_STAGES[location.id]?.[level];
-    const floorButton = location.id === 'cafe' && level >= 4 ? `<button class="btn floor-customize-trigger" type="button" data-floor-customize>🎨 ${getCafeFloor().name} floor</button>` : '';
-    const nextLabel = nextStage?.[0] || 'All improvements complete';
-    const status = !unlocked ? `Opens after Chapter ${location.unlockChapter}` : done ? 'Fully restored · all eight improvements complete.' : `Next: ${nextLabel} · +1⭐`;
-    const action = !unlocked ? `<span class="location-lock">🔒 Chapter ${location.unlockChapter}</span>` : done ? '<span class="built-check">✅</span>' : `<button class="btn upgrade-button ${state.coins < upgradeCost(location) ? 'off' : ''}" data-loc="${location.id}" aria-label="${nextLabel} for ${upgradeCost(location)} coins">${upgradeCost(location)}🪙</button>`;
-    return `<div class="loc ${unlocked ? '' : 'location-locked'}"><div class="loc-details"><b>${location.icon} ${location.name} · ${level}/${location.decos.length} improvements</b><div class="deco">${decorations}</div><small>${status}</small>${floorButton}</div>${action}</div>`;
-  }).join('');
-  const totalRestorations = totalRestorationCount();
-  const completedChapters = Math.min(state.chapter, CHAPTERS.length);
-  showModal(`<div class="sheet-heading"><div><div class="story-kicker">REBUILDING IS PART OF THE STORY</div><h2>Restore the harbor</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="restoration-progress"><span>Waterfront restored</span><b>${restoredCount()} / ${totalRestorations}</b><div class="restoration-track"><i style="width:${(restoredCount() / totalRestorations) * 100}%"></i></div></div><div class="campaign-explainer"><b>Your campaign goal</b><p>Spend coins to restore ten harbor landmarks, from Mae’s café and Theo’s pier to the lighthouse, archive and festival plaza. Every improvement earns 1⭐ and reveals a short illustrated scene. Discover all ${CHAPTERS.length} chapters and complete all ${totalRestorations} improvements for the epilogue; boards remain open for free play.</p><small>Story chapters found: ${completedChapters}/${CHAPTERS.length} · No timer or fail state.</small></div><div class="map-heading">HARBOR RESTORATION MAP · 10 LANDMARKS</div>${rows}`, modal => {
-    modal.querySelector('.close-sheet').onclick = () => modal.remove();
-    modal.querySelectorAll('[data-floor-customize]').forEach(button => {
-      button.onclick = () => {
-        modal.remove();
-        showCafeFloorCustomizer();
-      };
+function openNextRestoration() {
+  const pending = state.pendingRestoration;
+  if (pending) {
+    const pendingLocation = LOCATIONS.find(location => location.id === pending.locationId);
+    if (pendingLocation) showRestorationMoment(pendingLocation, pending.level, true);
+    return;
+  }
+
+  const location = nextRestorationGoal();
+  if (!location) {
+    const upcoming = LOCATIONS.find(entry => !isLocationUnlocked(entry) && (Number(state.levels[entry.id]) || 0) < entry.decos.length);
+    const complete = !upcoming && restoredCount() >= totalRestorationCount();
+    const title = complete ? 'The harbor is home again' : 'The next worksite is waiting';
+    const message = complete
+      ? 'Every place has been restored. Your harbor boards are still open for relaxed free play.'
+      : `The ${upcoming?.name || 'next'} worksite opens as the story unfolds${upcoming ? ` · Chapter ${upcoming.unlockChapter}` : ''}. Help neighbors and earn stars to continue the story.`;
+    const modal = showModal(`<div class="sheet-heading"><div><div class="story-kicker">${complete ? 'CAMPAIGN MILESTONE' : 'THE STORY LEADS THE WAY'}</div><h2>${title}</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><p>${message}</p>${complete ? '' : '<button class="btn primary repair-follow-story" type="button">Follow the story ›</button>'}`, root => {
+      root.classList.add('repair-next-modal');
+      root.querySelector('.close-sheet').onclick = () => root.remove();
+      root.querySelector('.repair-follow-story')?.addEventListener('click', () => { root.remove(); showStory(); });
     });
-    modal.querySelectorAll('[data-loc]').forEach(button => {
-      button.onclick = () => {
-        const location = LOCATIONS.find(entry => entry.id === button.dataset.loc);
-        const cost = upgradeCost(location);
-        if (!location || !isLocationUnlocked(location) || state.levels[location.id] >= location.decos.length || state.coins < cost) return;
-        state.coins -= cost;
-        state.levels[location.id] += 1;
-        const newLevel = state.levels[location.id];
-        state.starsToward += 1;
-        state.stats.restorations = (state.stats.restorations || 0) + 1;
-        updateDailyProgress('restorations');
-        grantXP(20);
-        checkAchievements();
-        playPop();
-        modal.remove();
-        showFloat(`${location.name} restored! +1⭐`);
-        render();
-        showRestorationMoment(location, newLevel);
-      };
-    });
+    return modal;
+  }
+
+  currentBoardKey = 'main';
+  selectedIndex = -1;
+  const level = Math.min(location.decos.length, Number(state.levels[location.id]) || 0) + 1;
+  showRestorationMoment(location, level);
+}
+
+function goToStoryChore(modal) {
+  const context = storyChoreContext();
+  const chore = context.chore;
+  modal.remove();
+  if (!chore) return;
+  if (chore.kind === 'restorations') {
+    const pending = state.pendingRestoration;
+    const pendingLocation = LOCATIONS.find(location => location.id === pending?.locationId);
+    if (pendingLocation && pending) {
+      showRestorationMoment(pendingLocation, pending.level, true);
+      return;
+    }
+    const location = nextRestorationGoal();
+    const level = Number(state.levels[location?.id]) || 0;
+    if (location && level < location.decos.length) showRestorationMoment(location, level + 1);
+    return;
+  }
+  currentBoardKey = 'main';
+  selectedIndex = -1;
+  mergeHintPair = chore.kind === 'merges' ? findMergePair() : null;
+  feedbackMessage = chore.kind === 'orders'
+    ? `${CHARS[chore.character]?.name || 'A neighbor'} has a story-priority request. Tap their portrait to help.`
+    : chore.kind === 'discoveries'
+      ? 'Make and merge harbor items to uncover a new collection tier.'
+      : 'Follow the highlighted pair to prepare supplies for the crew.';
+  render();
+  window.setTimeout(() => {
+    const target = chore.kind === 'orders'
+      ? container.querySelector(`[data-task="${state.tasks.findIndex(task => task.who === chore.character)}"]`)
+      : chore.kind === 'discoveries'
+        ? container.querySelector(`.cell.gen-${CHARS[chore.character]?.favorite || 'coffee'}`)
+        : container.querySelector('.merge-hint');
+    target?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    target?.classList.add('story-go-target');
+    window.setTimeout(() => target?.classList.remove('story-go-target'), 1500);
+  }, 40);
+}
+
+function openStoryExperience() {
+  const moment = state.storyMoments?.[0];
+  if (!moment) {
+    showStory();
+    return;
+  }
+  showDialogue({ ...moment, isOrderMoment: true }, () => {
+    if (state.storyMoments[0] === moment) state.storyMoments.shift();
+    saveState();
+    render();
   });
 }
 
@@ -1632,26 +2253,68 @@ function showStory() {
   const totalRestorations = totalRestorationCount();
   const restorationProgress = Math.min(1, restored / totalRestorations);
   const nextLocation = nextRestorationGoal();
+  const context = storyChoreContext();
+  const stepCount = STORY_CHORE_STEPS.length;
+  const choreRows = STORY_CHORE_STEPS.map((step, index) => {
+    const done = index < context.stepIndex;
+    const current = index === context.stepIndex;
+    const character = CHARS[step.character] || CHARS.mae;
+    const location = context.chapterIndex < CHAPTER_LOCATION_IDS.length ? LOCATIONS.find(entry => entry.id === CHAPTER_LOCATION_IDS[context.chapterIndex]) : LOCATIONS[0];
+    const title = step.kind === 'restorations' && current ? context.chore?.title || step.title : step.title;
+    const progressText = current ? ` · ${Math.min(context.progress, step.target)}/${step.target}` : '';
+    const action = current && step.kind !== 'restorations' ? `<button class="btn primary story-go" type="button" data-story-go>${step.kind === 'orders' ? 'GO TO REQUEST' : 'GO TO BOARD'}</button>` : '';
+    return `<div class="story-quest-row ${done ? 'completed' : ''} ${current ? 'current' : 'locked'}"><span class="story-quest-state">${done ? '✓' : current ? '●' : '○'}</span>${current ? `<img src="${character.img}" alt="${character.name}">` : ''}<div class="story-quest-copy"><small>${step.day || (index === 7 ? 'FINAL BEAT' : index < 4 ? 'DAY 1' : 'DAY 2')} · ${done ? 'COMPLETE' : current ? 'CURRENT OBJECTIVE' : 'UP NEXT'}</small><b>${title}${progressText}</b><span>${current ? context.chore?.detail || step.detail : step.detail}${location && step.kind === 'restorations' && !current ? ` · ${location.name}` : ''}</span></div>${action}</div>`;
+  }).join('');
   const chapters = CHAPTERS.map((chapter, index) => {
     const unlocked = index < state.chapter;
-    const hint = unlocked ? 'Discovered · tap Replay to read this scene again' : index === state.chapter ? `Next chapter · earn ${remainingStars} more ⭐ from orders or repairs` : 'Locked · chapters unlock in order';
+    const hint = unlocked ? 'Read again · no rewards are repeated' : index === state.chapter ? `Next episode · ${remainingStars} more ⭐` : 'Locked · chapters unfold in order';
     return `<div class="loc story-row"><div><b>${unlocked ? '📖' : '🔒'} ${index + 1}. ${chapter.title}</b><small>${hint}</small></div>${unlocked ? `<button class="btn replay-button" data-ch="${index}">Replay</button>` : ''}</div>`;
   }).join('');
   const campaignFinished = storyComplete && restored >= totalRestorations;
   const nextGoal = campaignFinished
-    ? `The campaign is finished: all ${CHAPTERS.length} chapters and all ${totalRestorations} improvements are complete. The epilogue has played; your boards stay open for relaxed free play.`
+    ? `The campaign is complete: all ${CHAPTERS.length} chapters and all ${totalRestorations} improvements are finished. Your boards remain open for relaxed free play.`
     : !storyComplete
-      ? `Earn ${remainingStars} more ⭐ to unlock “${CHAPTERS[state.chapter].title}.” Deliver townsfolk requests or buy a harbor repair; both give story stars. You can work on the ${totalRestorations - restored} remaining improvements along the way.`
-      : `The mystery is solved, but the campaign is not finished yet. Restore ${totalRestorations - restored} more improvements${nextLocation ? `; ${nextLocation.name} is next` : ''} to unlock the epilogue.`;
-  showModal(`<div class="sheet-heading"><div><div class="story-kicker">A HARBOR TOWN MYSTERY</div><h2>The Harbor Journal</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="journal-goals"><div class="journal-goal"><div class="goal-heading"><b>📖 Mystery chapters</b><strong>${Math.min(state.chapter, CHAPTERS.length)} / ${CHAPTERS.length}</strong></div><div class="restoration-track"><i style="width:${chapterProgress * 100}%"></i></div><small>${storyComplete ? 'Mystery solved · replay any chapter below' : `${remainingStars} more ⭐ to open the next chapter`}</small></div><div class="journal-goal"><div class="goal-heading"><b>🛠️ Harbor repairs</b><strong>${restored} / ${totalRestorations}</strong></div><div class="restoration-track"><i style="width:${restorationProgress * 100}%"></i></div><small>${storyComplete && restored < totalRestorations ? `${totalRestorations - restored} more improvements until the epilogue` : storyComplete ? 'All places rebuilt · campaign finished' : 'Spend coins in Restore; each repair gives 1⭐'}</small></div></div><div class="journal-next"><b>${campaignFinished ? 'CAMPAIGN COMPLETE · FREE PLAY' : storyComplete ? 'WHAT ENDS THE CAMPAIGN?' : 'WHAT TO DO NEXT'}</b><p>${nextGoal}</p></div><p>There is no timer, life limit, or way to fail. Energy only pauses new items while it refills. Choose your own pace; your progress stays saved.</p><div class="story-list-heading">${Math.min(state.chapter, CHAPTERS.length)} of ${CHAPTERS.length} chapters discovered</div>${chapters}`, modal => {
-    modal.querySelector('.close-sheet').onclick = () => modal.remove();
-    modal.querySelectorAll('[data-ch]').forEach(button => {
+      ? `Earn ${remainingStars} more ⭐ from neighbor requests or repairs to reveal “${CHAPTERS[state.chapter].title}.” The current story day has ${Math.max(0, stepCount - context.stepIndex)} chores remaining.`
+      : `The mystery is solved. Restore ${totalRestorations - restored} more improvements${nextLocation ? `; ${nextLocation.name} is next` : ''} to unlock the epilogue.`;
+  const storyCover = storyArtwork(context.chapter);
+  const choreProgress = Math.min(100, context.stepIndex / stepCount * 100);
+  const storyReady = state.storyMoments?.length > 0;
+  const pendingRepair = state.pendingRestoration;
+  const pendingRepairLocation = LOCATIONS.find(location => location.id === pendingRepair?.locationId) || null;
+  const journalRepairLocation = pendingRepairLocation || nextLocation;
+  const journalRepairLevel = pendingRepairLocation ? Number(pendingRepair.level) || 1 : journalRepairLocation ? (Number(state.levels[journalRepairLocation.id]) || 0) + 1 : 0;
+  const journalRepairStage = journalRepairLocation ? RESTORATION_STAGES[journalRepairLocation.id]?.[journalRepairLevel - 1] : null;
+  const journalRepairCost = journalRepairLocation ? upgradeCost(journalRepairLocation) : 0;
+  const journalRepairCard = pendingRepairLocation
+    ? `<section class="journal-repair-card in-progress"><div class="journal-repair-copy"><small>HARBOR REPAIR · IN PROGRESS</small><b>${pendingRepairLocation.icon} ${pendingRepairLocation.name} · ${journalRepairStage?.[0] || 'Saved scene'}</b><span>Your scene is saved. Continue when you’re ready.</span></div><button class="journal-continue-action" type="button" data-journal-resume aria-label="Continue the saved ${pendingRepairLocation.name} repair">📖<small>Continue</small></button></section>`
+    : journalRepairLocation && journalRepairStage
+      ? `<section class="journal-repair-card"><div class="journal-repair-copy"><small>NEXT HARBOR REPAIR · ${journalRepairLocation.name.toUpperCase()}</small><b>${journalRepairLocation.icon} ${journalRepairStage[0]}</b><span>${journalRepairStage[1]}</span></div><button class="journal-repair-coin" type="button" data-journal-repair="${journalRepairLocation.id}" aria-label="Open ${journalRepairLocation.name} repair scene, cost ${journalRepairCost} coins"><span>🪙</span><b>${journalRepairCost}</b><small>Tap coin</small></button></section>`
+      : `<section class="journal-repair-card all-restored"><div class="journal-repair-copy"><small>HARBOR RESTORED</small><b>Every improvement is complete</b><span>The harbor remains open for relaxed free play.</span></div><span class="journal-complete-mark">✓</span></section>`;
+  const modal = showModal(`<div class="sheet-heading"><div><div class="story-kicker">STORY · CHORES · REPAIRS</div><h2>The Harbor Journal</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="storybook-cover" style="--chapter-art:url('${storyCover}')"><div><small>CHAPTER ${context.chapterIndex + 1} · ${context.stepIndex < 4 ? 'DAY 1' : 'DAY 2'}</small><h3>${context.chapter.title}</h3><p>${context.chapter.lines?.[0]?.[1] || 'The harbor is still putting its story back together.'}</p></div><span>${context.chapterIndex + 1}</span></div><div class="storybook-summary"><div class="goal-heading"><b>📖 TODAY’S HARBOR CHORES</b><strong>${context.stepIndex} / ${stepCount}</strong></div><div class="restoration-track"><i style="width:${choreProgress}%"></i></div><small>${context.chore ? `${context.chore.day} · ${context.chore.title}` : 'All eight chores complete · follow story stars to the next episode.'}</small><div class="storybook-objective-card"><span>${CHARS[context.chore?.character || 'iris']?.icon || '📖'}</span><div><small>${context.chore ? 'WHY THIS MATTERS' : 'NEXT STORY BEAT'}</small><b>${context.chore ? context.chore.detail : nextGoal}</b></div></div></div><div class="story-quest-list">${choreRows}</div><div class="journal-goals"><div class="journal-goal"><div class="goal-heading"><b>📖 Mystery chapters</b><strong>${Math.min(state.chapter, CHAPTERS.length)} / ${CHAPTERS.length}</strong></div><div class="restoration-track"><i style="width:${chapterProgress * 100}%"></i></div><small>${storyComplete ? 'Mystery solved · scenes are replayable below' : `${remainingStars} more ⭐ to open the next chapter`}</small></div><div class="journal-goal"><div class="goal-heading"><b>🛠️ Harbor repairs</b><strong>${restored} / ${totalRestorations}</strong></div><div class="restoration-track"><i style="width:${restorationProgress * 100}%"></i></div><small>${storyComplete && restored < totalRestorations ? `${totalRestorations - restored} improvements until the epilogue` : storyComplete ? 'All places rebuilt · campaign finished' : 'Every paid repair gives 1⭐ and changes the harbor.'}</small></div></div>${journalRepairCard}<div class="journal-next"><b>${storyReady ? 'STORY READY · A NEIGHBOR HAS A NOTE' : campaignFinished ? 'CAMPAIGN COMPLETE · FREE PLAY' : storyComplete ? 'THE MYSTERY IS SOLVED' : 'WHAT HAPPENS NEXT?'}</b><p>${storyReady ? 'A character is ready to react to your recent help. Read their note using the “Read story” link on the board.' : nextGoal}</p></div><div class="story-list-heading">${Math.min(state.chapter, CHAPTERS.length)} of ${CHAPTERS.length} chapters discovered · replay a completed scene</div>${chapters}`, root => {
+    root.classList.add('storybook-modal');
+    root.querySelector('.close-sheet').onclick = () => root.remove();
+    root.querySelector('[data-journal-repair]')?.addEventListener('click', event => {
+      const location = LOCATIONS.find(entry => entry.id === event.currentTarget.dataset.journalRepair);
+      if (!location || state.pendingRestoration) return;
+      root.remove();
+      showRestorationMoment(location, (Number(state.levels[location.id]) || 0) + 1);
+    });
+    root.querySelector('[data-journal-resume]')?.addEventListener('click', () => {
+      const pending = state.pendingRestoration;
+      const location = LOCATIONS.find(entry => entry.id === pending?.locationId);
+      if (!location || !pending) return;
+      root.remove();
+      showRestorationMoment(location, pending.level, true);
+    });
+    root.querySelector('[data-story-go]')?.addEventListener('click', () => goToStoryChore(root));
+    root.querySelectorAll('[data-ch]').forEach(button => {
       button.onclick = () => {
-        modal.remove();
+        root.remove();
         showDialogue(CHAPTERS[Number(button.dataset.ch)]);
       };
     });
   });
+  return modal;
 }
 
 function claimDailyGift() {
@@ -1672,7 +2335,7 @@ function claimDailyGift() {
 
 function showMoreMenu() {
   const boardLabel = currentBoardKey === 'main' ? '🏖️ Open the picnic board' : '⚓ Return to the town board';
-  showModal(`<div class="sheet-heading"><div><div class="story-kicker">HARBOR MENU</div><h2>A few more things</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="quick-menu"><button class="btn menu-board">${boardLabel}</button><button class="btn menu-collection">🧺 Items & storage</button><button class="btn menu-goals">🧭 Daily goals & rewards</button><button class="btn menu-gift">🎁 Daily harbor gift</button><button class="btn menu-guide">❔ How to play</button></div>`, modal => {
+  showModal(`<div class="sheet-heading"><div><div class="story-kicker">HARBOR MENU</div><h2>A few more things</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="quick-menu"><button class="btn menu-board">${boardLabel}</button><button class="btn menu-collection">🧺 Items & storage</button><button class="btn menu-journal">📖 Story journal & repairs</button><button class="btn menu-goals">🧭 Daily goals & rewards</button><button class="btn menu-gift">🎁 Daily harbor gift</button><button class="btn menu-guide">❔ How to play</button></div>`, modal => {
     modal.querySelector('.close-sheet').onclick = () => modal.remove();
     modal.querySelector('.menu-board').onclick = () => {
       modal.remove();
@@ -1682,6 +2345,7 @@ function showMoreMenu() {
       render();
     };
     modal.querySelector('.menu-collection').onclick = () => { modal.remove(); showCollection('items'); };
+    modal.querySelector('.menu-journal').onclick = () => { modal.remove(); showStory(); };
     modal.querySelector('.menu-goals').onclick = () => { modal.remove(); showProgress('daily'); };
     modal.querySelector('.menu-gift').onclick = () => { modal.remove(); claimDailyGift(); };
     modal.querySelector('.menu-guide').onclick = () => { modal.remove(); showGuide(); };
@@ -1722,7 +2386,9 @@ function renderTasks() {
     const character = CHARS[task.who] || CHARS.mae;
     const quantity = requirement.quantity || 1;
     const stageCount = task.requirements?.length || 1;
-    return `<button class="task neighbor-card ${ready ? 'task-ready' : ''}" data-task="${index}" style="--neighbor-accent:${character.accent}" aria-label="Review ${character.name}'s request for ${item.name}${quantity > 1 ? `, quantity ${quantity}` : ''}${stageCount > 1 ? `, delivery ${task.stage + 1} of ${stageCount}` : ''}. Rewards: ${task.coins} coins, ${task.energy} energy, ${task.stars} stars."><img class="neighbor-portrait" src="${character.img}" alt=""><span class="neighbor-reward"><span>🪙</span><b>+${task.coins}</b></span><span class="neighbor-bonus">${task.energy ? `⚡ ${task.energy}` : ''}${task.stars ? ` ⭐ ${task.stars}` : ''}</span><span class="neighbor-plate"><span class="neighbor-item">${item.icon}${quantity > 1 ? `<i>×${quantity}</i>` : ''}</span><span class="neighbor-ready-mark">${ready ? '✓' : ''}</span></span></button>`;
+    const stageNumber = Math.min(stageCount, (task.stage || 0) + 1);
+    const storyPriority = isStoryPriorityTask(task);
+    return `<article class="task neighbor-card ${ready ? 'task-ready' : ''} ${storyPriority ? 'story-critical' : ''}" data-task="${index}" style="--neighbor-accent:${character.accent}"><img class="neighbor-portrait" src="${character.img}" alt=""><span class="neighbor-reward"><span>🪙</span><b>+${task.coins}</b></span><span class="neighbor-bonus">${task.energy ? `⚡ ${task.energy}` : ''}${task.stars ? ` ⭐ ${task.stars}` : ''}</span>${storyPriority ? '<span class="neighbor-story-mark">📖 STORY</span>' : ''}<span class="neighbor-plate"><span class="neighbor-item">${itemArtMarkup(requirement.fam,requirement.tier,'neighbor-item-art')}${quantity > 1 ? `<i>×${quantity}</i>` : ''}</span></span><button class="neighbor-review" type="button" data-task-review="${index}" aria-label="${storyPriority ? 'Story priority. ' : ''}Review ${character.name}'s request for ${item.name}${quantity > 1 ? `, quantity ${quantity}` : ''}${stageCount > 1 ? `, delivery ${stageNumber} of ${stageCount}` : ''}. Rewards: ${task.coins} coins, ${task.energy} energy, ${task.stars} stars."></button>${ready ? `<button class="neighbor-serve" type="button" data-serve-task="${index}" aria-label="Serve ${item.name}${quantity > 1 ? ` ×${quantity}` : ''}${stageCount > 1 ? `, step ${stageNumber} of ${stageCount}` : ''}">SERVE</button>` : ''}</article>`;
   }).join('');
 }
 
@@ -1739,8 +2405,7 @@ function renderCell(cell, index, popIndex) {
     classes.push(`fam-${cell.fam}`);
     if (cell.covered) classes.push('covered');
     if (cell.locked) classes.push('item-locked');
-    const item = FAMILIES[cell.fam]?.tiers[cell.tier - 1];
-    content = `<span class="cell-icon">${item?.icon || '◇'}</span><span class="tier">${cell.tier}</span>${cell.locked ? '<span class="lock-mark" aria-hidden="true">🔒</span>' : ''}${cell.covered ? '<span class="webbing" aria-hidden="true"></span>' : ''}`;
+    content = `${itemArtMarkup(cell.fam,cell.tier)}<span class="tier">${cell.tier}</span>${cell.locked ? '<span class="lock-mark" aria-hidden="true">🔒</span>' : ''}${cell.covered ? '<span class="webbing" aria-hidden="true"></span>' : ''}`;
   }
   const hintPair = tutorialStep === 1 ? tutorialMergeTargets : mergeHintPair;
   if (hintPair?.includes(index)) classes.push('merge-hint');
@@ -1756,10 +2421,17 @@ function render() {
   const cells = board();
   const chapterBadge = Math.min(CHAPTERS.length, state.chapter + 1);
   const chapterBadgeLabel = state.chapter >= CHAPTERS.length ? `All ${CHAPTERS.length} story chapters discovered` : `Next story chapter ${chapterBadge} of ${CHAPTERS.length}; earn stars to unlock it`;
+  const storyContext = storyChoreContext();
+  const activeStoryChore = storyContext.chore;
+  const storyMoment = state.storyMoments?.[0];
+  const choreRatio = activeStoryChore ? Math.min(1, storyContext.progress / activeStoryChore.target) : 0;
+  const choreTrackPercent = Math.min(100, ((storyContext.stepIndex + choreRatio) / STORY_CHORE_STEPS.length) * 100);
+  const storyObjectiveTitle = storyMoment ? 'A neighbor has a note for you' : activeStoryChore ? activeStoryChore.title : 'The day’s harbor chores are complete';
+  const storyObjectiveDetail = storyMoment ? `Read ${CHARS[storyMoment.lines?.[0]?.[0]]?.name || 'your neighbor'}’s reaction · ${state.storyMoments.length} scene${state.storyMoments.length === 1 ? '' : 's'} ready` : activeStoryChore ? `${activeStoryChore.day} · ${Math.min(storyContext.progress, activeStoryChore.target)}/${activeStoryChore.target} · ${activeStoryChore.location.name}${activeStoryChore.kind === 'restorations' ? ' · Ready to visit' : ''}` : `Earn ⭐ to open “${CHAPTERS[Math.min(state.chapter, CHAPTERS.length - 1)].title}.”`;
   const selectedCell = selectedIndex >= 0 ? cells[selectedIndex] : null;
   const selectedItem = selectedCell && !selectedCell.gen ? FAMILIES[selectedCell.fam]?.tiers[selectedCell.tier - 1] : null;
   const selectedGenerator = selectedCell?.gen ? generatorDefinition(selectedCell.gen) : null;
-  const footerIcon = selectedItem?.icon || selectedGenerator?.icon || (currentBoardKey === 'event' ? '🏖️' : '🧺');
+  const footerArt = selectedItem ? itemArtMarkup(selectedCell.fam,selectedCell.tier,'footer-item-art') : selectedGenerator?.icon || (currentBoardKey === 'event' ? '🏖️' : '🧺');
   const footerTitle = selectedItem ? `${selectedItem.name} (Lvl ${selectedCell.tier})` : selectedGenerator ? `${selectedGenerator.name} · Lv ${generatorLevel(selectedCell.gen)}` : currentBoardKey === 'event' ? 'Seaside picnic' : 'Harbor board';
   const footerDescription = selectedItem
     ? selectedCell.tier < (FAMILIES[selectedCell.fam]?.tiers.length || 8) ? 'MERGE to reach its next level.' : 'TOP TIER · READY FOR A NEIGHBOR REQUEST.'
@@ -1768,23 +2440,36 @@ function render() {
   container.innerHTML = `<div class="app">
     <header class="topline">
       <div class="profile-badge" aria-label="${chapterBadgeLabel}" title="${chapterBadgeLabel}"><img src="${CHARS.iris.img}" alt=""><b>${chapterBadge}</b></div>
-      <div class="resource-pills"><div class="resource-pill energy-pill" title="Energy regenerates over time · ${maxEnergy()} maximum"><span>⚡</span><b>${state.energy}/${maxEnergy()}</b></div><div class="resource-pill coin-pill" title="Coins fund harbor improvements"><span>🪙</span><b>${state.coins}</b></div><div class="resource-pill gem-pill" title="Pearls"><span>💎</span><b>${state.pearls}</b></div></div>
-      <div class="top-actions"><button class="btn sound-button" id="mute" aria-label="Toggle sound">${muted ? '🔇' : '🔊'}</button></div>
+      <div class="resource-pills"><div class="resource-pill energy-pill" title="Energy regenerates over time · ${maxEnergy()} maximum"><span>⚡</span><b>${state.energy}/${maxEnergy()}</b></div><div class="resource-pill coin-pill" data-resource="coins" title="Coins fund harbor improvements"><span>🪙</span><b>${state.coins}</b></div><div class="resource-pill star-pill" data-resource="stars" title="Stars reveal story chapters and track restoration"><span>⭐</span><b>${state.stars}</b></div><div class="resource-pill gem-pill" title="Pearls"><span>💎</span><b>${state.pearls}</b></div></div>
+      <div class="top-actions"><button class="btn more-button" id="more-nav" aria-label="More harbor options" title="More harbor options">☰</button><button class="btn sound-button" id="mute" aria-label="Toggle sound">${muted ? '🔇' : '🔊'}</button></div>
     </header>
+    <section class="story-objective ${storyMoment ? 'story-objective-ready' : ''}" aria-label="Current story objective"><img src="${CHARS[activeStoryChore?.character || 'iris']?.img || CHARS.iris.img}" alt=""><div class="story-objective-copy"><small>CHAPTER ${storyContext.chapterIndex + 1} · ${storyContext.chapter.title}</small><b>${storyObjectiveTitle}</b><span>${storyObjectiveDetail}</span><i class="story-objective-track"><i style="width:${choreTrackPercent}%"></i></i></div><button class="story-objective-action" id="story-focus" type="button">${storyMoment ? `STORY READY${state.storyMoments.length > 1 ? ` · ${state.storyMoments.length}` : ''}` : 'CHORE BOOK'}<span>›</span></button></section>
     <section class="orders-section ${currentBoardKey === 'main' ? 'neighbor-section' : 'event-section'}"><div class="section-heading"><b>${currentBoardKey === 'event' ? 'PICNIC REWARDS' : 'HARBOR NEIGHBORS'}</b><small>${currentBoardKey === 'event' ? 'Optional seaside side board' : 'Swipe for all neighbors'}${currentBoardKey === 'main' ? '<button class="story-link" id="open-story">Read story <span>›</span></button>' : ''}</small></div><div class="tasks ${currentBoardKey === 'event' ? 'event-tasks' : 'neighbor-rail'}" ${currentBoardKey === 'main' ? `role="region" tabindex="0" aria-label="Neighbor requests. Scroll horizontally to browse all ${Object.keys(CHARS).length} neighbors."` : ''}>${renderTasks()}</div></section>
     <div class="board ${currentBoardKey === 'event' ? 'event' : ''}" role="grid" aria-label="${currentBoardKey === 'main' ? 'Harbor town' : 'Seaside picnic'} merge board, ${BOARD_COLS} columns by ${BOARD_ROWS} rows">${cells.map((cell, index) => renderCell(cell, index, -1)).join('')}</div>
-    <div class="board-footer"><span class="footer-item-icon" aria-hidden="true">${footerIcon}</span><div class="info item-info" aria-live="polite"><div class="item-info-copy"><b class="item-info-title">${footerTitle}</b><small class="item-info-description">${footerDescription}</small></div><button class="item-info-button" id="item-details" type="button" aria-label="Open item details" ${selectedItem ? '' : 'disabled'}>i</button></div><button class="btn quick-sell" id="quick-sell" aria-label="Sell selected item" title="Sell selected item" ${canQuickSell ? '' : 'disabled'}>🗑️</button></div>
-    <nav class="nav" aria-label="Game menu"><button class="btn" id="story-nav">📖 <span>Journal</span></button><button class="btn" id="upgrade-nav">🛠️ <span>Restore</span></button><button class="btn" id="more-nav">☰ <span>More</span></button></nav>
+    <div class="board-footer"><span class="footer-item-icon" aria-hidden="true">${footerArt}</span><div class="info item-info" aria-live="polite"><div class="item-info-copy"><b class="item-info-title">${footerTitle}</b><small class="item-info-description">${footerDescription}</small></div><button class="item-info-button" id="item-details" type="button" aria-label="Open item details" ${selectedItem ? '' : 'disabled'}>i</button></div><button class="btn quick-sell" id="quick-sell" aria-label="Sell selected item" title="Sell selected item" ${canQuickSell ? '' : 'disabled'}>🗑️</button></div>
+    <nav class="nav" aria-label="Main navigation"><button class="btn" id="inventory-nav" aria-label="Open inventory">🧺 <span>Inventory</span></button><button class="btn nav-repairs" id="repairs-nav" type="button" aria-label="Open harbor repairs" title="Restore the harbor"><svg class="repair-icon" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="repairHead" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#e4f8ff"/><stop offset="1" stop-color="#71c7e8"/></linearGradient><linearGradient id="repairHandle" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#ffd477"/><stop offset="1" stop-color="#d98145"/></linearGradient></defs><circle cx="32" cy="32" r="28" fill="#f3fbff" stroke="#b8e5f0" stroke-width="3"/><path d="M17 47 41 23" fill="none" stroke="#8d4e32" stroke-width="9" stroke-linecap="round"/><path d="M17 47 41 23" fill="none" stroke="url(#repairHandle)" stroke-width="6" stroke-linecap="round"/><path d="m32 13 8-8 18 18-8 8-5-5-7 7-8-8 7-7z" fill="url(#repairHead)" stroke="#365d78" stroke-width="3" stroke-linejoin="round"/><path d="m35 15 4-4 13 13-4 4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="m12 18 2 4 4 2-4 2-2 4-2-4-4-2 4-2zM49 43l1.5 3 3 1.5-3 1.5-1.5 3-1.5-3-3-1.5 3-1.5z" fill="#ffd36f" stroke="#fff7dd" stroke-width="1.5" stroke-linejoin="round"/></svg><span>Repairs</span></button></nav>
   </div>`;
   const milestones = container.querySelector('.event-milestones');
   if (milestones) milestones.scrollLeft = eventScroll;
   const neighborRail = container.querySelector('.neighbor-rail');
   if (neighborRail) neighborRail.scrollLeft = neighborScroll;
-  container.querySelectorAll('[data-task]').forEach(button => {
+  container.querySelectorAll('[data-task-review]').forEach(button => {
     button.onclick = () => {
       if (tutorialStep !== null && tutorialStep !== 3) return;
       if (tutorialStep === 3) finishTutorial();
-      showTask(Number(button.dataset.task));
+      showTask(Number(button.dataset.taskReview));
+    };
+  });
+  container.querySelectorAll('[data-serve-task]').forEach(button => {
+    button.onclick = () => {
+      if (tutorialStep !== null && tutorialStep !== 3) return;
+      if (tutorialStep === 3) finishTutorial();
+      const index = Number(button.dataset.serveTask);
+      if (!taskReady(state.tasks[index])) {
+        render();
+        return;
+      }
+      completeTask(index);
     };
   });
   container.querySelectorAll('[data-event-claim]').forEach(button => {
@@ -1805,9 +2490,10 @@ function render() {
   container.querySelector('#item-details').onclick = () => {
     if (selectedIndex >= 0 && !board()[selectedIndex]?.gen) showItemDetails(selectedIndex);
   };
-  container.querySelector('#story-nav').onclick = showStory;
-  container.querySelector('#open-story')?.addEventListener('click', showStory);
-  container.querySelector('#upgrade-nav').onclick = showLocations;
+  container.querySelector('#inventory-nav').onclick = () => showCollection('inventory');
+  container.querySelector('#repairs-nav').onclick = () => openNextRestoration();
+  container.querySelector('#story-focus').onclick = () => storyMoment ? openStoryExperience() : showStory();
+  container.querySelector('#open-story')?.addEventListener('click', openStoryExperience);
   container.querySelector('#more-nav').onclick = showMoreMenu;
   saveState();
   refreshTutorial();
