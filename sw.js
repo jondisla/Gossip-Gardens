@@ -1,18 +1,22 @@
-const CACHE_NAME = 'harbor-whispers-v19';
+const CACHE_NAME = 'harbor-whispers-v35';
 const APP_FILES = [
   './',
   './index.html',
   './main.js',
+  './repair-details.js',
   './game-content.js',
   './harbor-ui.css',
+  './restoration-ui.css',
   './manifest.webmanifest',
   './app-icon.svg',
   './rosebud-game-defaults.css',
   './rosebud-game-defaults.js',
   './assets/harbor-bg.webp',
   './assets/restore-cafe-before.webp',
+  './assets/restore-cafe-after-cleanup.webp',
   './assets/restore-pier-before.webp',
   './assets/restore-garden-before.webp',
+  './assets/restore-garden-after-clearing.webp',
   './assets/restore-gazette-before.webp',
   './assets/restore-cafe-scene.webp',
   './assets/restore-pier-scene.webp',
@@ -20,6 +24,8 @@ const APP_FILES = [
   './assets/restore-gazette-scene.webp',
   './assets/restore-cafe-room-before.webp',
   './assets/restore-cafe-room-after.webp',
+  './assets/restore-cafe-kitchen-before.webp',
+  './assets/restore-cafe-kitchen-after.webp',
   './assets/char-mae.webp',
   './assets/char-theo.webp',
   './assets/char-iris.webp',
@@ -31,6 +37,10 @@ const APP_FILES = [
   './assets/char-milo.webp',
   './assets/char-selene.webp',
   './assets/char-tamsin.webp',
+  './assets/harbor-bakery-atlas.webp',
+  './assets/harbor-market-atlas.webp',
+  './assets/harbor-seafood-atlas.webp',
+  './assets/harbor-pantry-atlas.webp',
   './assets/audio/harbor-music.mp3',
   './assets/audio/merge-pop.mp3'
 ];
