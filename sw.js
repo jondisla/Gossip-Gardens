@@ -1,4 +1,4 @@
-const CACHE_NAME = 'harbor-whispers-v35';
+const CACHE_NAME = 'harbor-whispers-v52';
 const APP_FILES = [
   './',
   './index.html',
