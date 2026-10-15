@@ -132,8 +132,10 @@ function siteBackdrop(locationId) {
   if (locationId === 'market' || locationId === 'festival') {
     return '<rect width="160" height="102" rx="12" fill="#e6efdf"/><path d="M0 49h160v53H0Z" fill="#d1b58a"/><path d="M0 61h160M0 76h160M0 91h160M28 49v53m38-53v53m38-53v53m38-53v53" stroke="#b1946d" stroke-width="1.7" opacity=".7"/><path d="M14 49V24h28v25m77 0V18h27v31" fill="#f3ddae" stroke="#9d7956" stroke-width="2"/>';
   }
-  if (locationId === 'lighthouse' || locationId === 'archive') {
-    return '<rect width="160" height="102" rx="12" fill="#d8e4df"/><path d="M0 0h160v71H0Z" fill="#eadfc8"/><path d="M0 72h160v30H0Z" fill="#9e917d"/><path d="M0 83h160M0 94h160" stroke="#817665" stroke-width="2" opacity=".5"/><path d="M12 12h18v36H12Z" fill="#8bbbc2" stroke="#856b50" stroke-width="3"/><path d="M21 12v36m-9-18h18" stroke="#f5e7ca" stroke-width="2"/>';
+  if (['lighthouse','archive','office','workshop'].includes(locationId)) {
+    const wall = locationId === 'workshop' ? '#dfc49b' : locationId === 'lighthouse' ? '#eadfc8' : '#f1e4c9';
+    const floor = locationId === 'workshop' ? '#9a704d' : locationId === 'lighthouse' ? '#9e917d' : '#bd9469';
+    return `<rect width="160" height="102" rx="12" fill="#d8e4df"/><path d="M0 0h160v71H0Z" fill="${wall}"/><path d="M0 72h160v30H0Z" fill="${floor}"/><path d="M0 83h160M0 94h160" stroke="#817665" stroke-width="2" opacity=".5"/><path d="M12 12h34v38H12Z" fill="#8bbbc2" stroke="#856b50" stroke-width="3"/><path d="M29 12v38M12 31h34" stroke="#f5e7ca" stroke-width="2"/><path d="M0 68h160" stroke="#a17b58" stroke-width="3" opacity=".65"/>`;
   }
   return '<rect width="160" height="102" rx="12" fill="#e7f1ed"/><path d="M0 0h160v70H0Z" fill="#f1e4c9"/><path d="M0 70h160v32H0Z" fill="#c89863"/><path d="M0 81h160M0 92h160" stroke="#ab7950" stroke-width="2" opacity=".55"/><path d="M18 70V22h25v29m74 19V19h25v51" fill="#dcc397" stroke="#9a7859" stroke-width="2"/>';
 }
@@ -185,26 +187,321 @@ function detailIllustration(spec, locationId, after) {
   return `<svg viewBox="0 0 160 102" role="img" aria-label="${after ? spec.after : spec.before}">${backdrop}${object}</svg>`;
 }
 
-export function repairDetailMarkup(locationId, level, afterOnly = false) {
-  const spec = REPAIR_DETAILS[locationId]?.[level - 1];
-  if (!spec) return '';
-  if (afterOnly) {
-    return `<section class="repair-detail-comparison repair-detail-after-only" aria-label="Repaired feature: ${spec.item}">
-      <header><span>REPAIRED</span><b>${spec.item}</b></header>
-      <div class="repair-detail-after-result">${detailIllustration(spec, locationId, true)}<b>${spec.after}</b></div>
-    </section>`;
-  }
-  return `<section class="repair-detail-comparison" aria-label="Exact repair detail: ${spec.item}">
-    <header><span>EXACT REPAIR</span><b>${spec.item}</b></header>
-    <div class="repair-detail-pair">
-      <div class="repair-detail-side before"><small>BEFORE</small>${detailIllustration(spec, locationId, false)}<b>${spec.before}</b></div>
-      <span class="repair-detail-arrow" aria-hidden="true">›</span>
-      <div class="repair-detail-side after"><small>AFTER</small>${detailIllustration(spec, locationId, true)}<b>${spec.after}</b></div>
-    </div>
-  </section>`;
+function repairTool(spec) {
+  if (spec.mode === 'remove') return '🧹';
+  if (spec.mode === 'plants') return '🪣';
+  if (spec.mode === 'mural') return '🖌️';
+  if (spec.mode === 'furniture') return '🪚';
+  if (spec.mode === 'counter' || spec.mode === 'shelves') return '🔧';
+  if (spec.mode === 'window' || spec.mode === 'door' || spec.mode === 'roof' || spec.mode === 'broken') return '🔨';
+  return '🛠️';
+}
+
+function repairAction(spec) {
+  const actions = {
+    remove:'The crew clears away storm damage',
+    roof:'Fresh boards and shingles are fitted into place',
+    window:'The frame is squared and the new glass is set',
+    door:'The door is lifted, aligned and secured',
+    furniture:'The crew carries in and sets the new furniture',
+    plants:'The crew plants, waters and tends the new growth',
+    broken:'The broken section is braced and repaired',
+    counter:'The counter is patched, sanded and fitted',
+    shelves:'The shelf frame is built and secured',
+    mural:'The welcome mural is painted by hand',
+    add:'The new feature is mounted and secured'
+  };
+  return actions[spec.mode] || 'The crew fits the new improvement';
 }
 
 export function repairDetailState(locationId, level) {
   const spec = REPAIR_DETAILS[locationId]?.[level - 1];
-  return spec ? { beforeState:spec.before, afterState:spec.after, repairItem:spec.item } : null;
+  if (!spec) return null;
+  const anchor = RESTORATION_OBJECT_REGISTRY[repairObjectId(locationId, level)];
+  return {
+    beforeState:spec.before,
+    afterState:spec.after,
+    repairItem:spec.item,
+    mode:spec.mode,
+    tool:repairTool(spec),
+    action:repairAction(spec),
+    x:anchor?.x ?? 384,
+    y:anchor?.y ?? 300,
+    width:anchor?.width ?? 256,
+    height:anchor?.height ?? 180
+  };
+}
+
+const FEATURE_COLORS = {
+  coastal: { wood:'#7b9f9a', trim:'#d7eee1', cushion:'#78b9bd', pot:'#b9d9cf', flower:'#ef9a8f' },
+  cottage: { wood:'#a87354', trim:'#f2d9b7', cushion:'#e88fa0', pot:'#c99073', flower:'#dd7190' },
+  'sunny-market': { wood:'#b77c43', trim:'#f4df9f', cushion:'#eab44d', pot:'#d38c59', flower:'#f0c247' },
+  default: { wood:'#a8734e', trim:'#f0d3a0', cushion:'#d9b477', pot:'#b97859', flower:'#e88991' }
+};
+
+function furnitureDrawing(colors, compact = false) {
+  const scale = compact ? 'translate(0 0)' : '';
+  return `${scale}<ellipse cx="130" cy="139" rx="115" ry="10" fill="#493d2d" opacity=".19"/>
+    <g stroke="#614733" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M78 74 82 131m83-55-4 55" fill="none"/><path d="m90 91-5 40m68-40 7 40" fill="none"/>
+      <path d="M50 81v48m26-52v53m-26-38h26" fill="none"/><path d="M187 83v47m27-51v52m-27-38h27" fill="none"/>
+      <path d="M68 67q0-7 7-7h87q7 0 7 7v19H68Z" fill="${colors.wood}"/><path d="M73 70h91" stroke="${colors.trim}" stroke-width="3"/>
+      <path d="M48 80q0-7 7-7h17q7 0 7 7v12H48Z" fill="${colors.cushion}"/><path d="M185 82q0-7 7-7h18q7 0 7 7v12h-32Z" fill="${colors.cushion}"/>
+      <path d="M21 112h18l-3 27H24Zm200 0h18l-3 27h-12Z" fill="${colors.pot}"/><path d="M30 112q-15-17-17-4 5 10 17 8m1-4q15-19 18-6-4 12-18 12m177-7q-13-17-17-6 5 11 17 11m0-5q15-18 18-5-6 10-18 10" fill="#79a267" stroke="#567b4c" stroke-width="2"/>
+      <circle cx="29" cy="99" r="5" fill="${colors.flower}" stroke="white" stroke-width="1.5"/><circle cx="210" cy="99" r="5" fill="#f3c55d" stroke="white" stroke-width="1.5"/>
+    </g>`;
+}
+
+function plantDrawing(item, colors) {
+  const tree = /tree|shade/.test(item);
+  const shrub = /butterfly|pollinator|flowers|flower|beds|garden/.test(item);
+  if (tree) return `<ellipse cx="130" cy="142" rx="59" ry="8" fill="#51412f" opacity=".17"/><path d="M113 142 117 64h25l6 78Z" fill="#98704e" stroke="#634a35" stroke-width="5"/><path d="M127 88 88 56m44 28 39-35m-42 20-4-36" fill="none" stroke="#765638" stroke-width="7" stroke-linecap="round"/><g fill="#78975c" stroke="#526f48" stroke-width="3"><circle cx="91" cy="52" r="31"/><circle cx="130" cy="36" r="39"/><circle cx="169" cy="53" r="31"/><circle cx="111" cy="68" r="29"/><circle cx="151" cy="69" r="29"/></g><g fill="${colors.flower}"><circle cx="104" cy="39" r="5"/><circle cx="150" cy="27" r="5"/><circle cx="173" cy="57" r="5"/></g>`;
+  const flowerCount = /butterfly|pollinator/.test(item) ? 5 : 4;
+  const stems = Array.from({length:flowerCount},(_,index)=>{
+    const x=48+index*38, height=43+(index%3)*12;
+    const bloom=['#ee8fa0','#f1c454','#9a91c5','#e98a72','#f3d36b'][index];
+    return `<path d="M${x} 127V${127-height}" stroke="#547a4e" stroke-width="4" stroke-linecap="round"/><path d="M${x} 107q-15-14-22-3 8 14 22 8m0-16q13-16 21-6-5 14-21 12" fill="#77a55d" stroke="#527c4d" stroke-width="2"/><g fill="${bloom}" stroke="#fff4d9" stroke-width="1.4"><circle cx="${x}" cy="${127-height}" r="7"/><circle cx="${x-6}" cy="${121-height}" r="5"/><circle cx="${x+6}" cy="${121-height}" r="5"/><circle cx="${x}" cy="${121-height}" r="5"/></g><circle cx="${x}" cy="${122-height}" r="2.3" fill="#f5d669"/>`;
+  }).join('');
+  return `<ellipse cx="130" cy="139" rx="113" ry="8" fill="#51412f" opacity=".18"/><path d="M20 111h220l-10 30H31Z" fill="${colors.pot}" stroke="#704e3b" stroke-width="5"/><path d="M29 112q50-15 98 0t103 0v12H29Z" fill="#604a34" stroke="#493d2d" stroke-width="3"/>${stems}${shrub ? '<path d="M197 92q13-20 25-8-6 15-25 14m-6 4q-18-15-26-1 12 12 26 5" fill="#83a45b" stroke="#597c4b" stroke-width="2"/>' : ''}`;
+}
+
+function objectDrawing(spec, locationId, installed, designId = '') {
+  const mode = spec.mode;
+  const item = spec.item.toLowerCase();
+  const colors = FEATURE_COLORS[designId] || FEATURE_COLORS.default;
+  const outline = '#604a39';
+  const shadow = '<ellipse cx="130" cy="144" rx="112" ry="8" fill="#3b342a" opacity=".18"/>';
+  if (mode === 'window') {
+    if (locationId === 'cafe') {
+      const fitted = '<rect x="86" y="10" width="82" height="142" rx="2" fill="#f0cf7f" stroke="#6e4c38" stroke-width="8"/><path d="M95 18h64v126H95Z" fill="#f4d98f"/><path d="M127 18v126M95 81h64" stroke="#80583e" stroke-width="7"/><path d="M78 158h98" stroke="#8e7156" stroke-width="5"/><path d="m101 29 19-5m27 71 13-10" stroke="#fff6d8" stroke-width="4" opacity=".76"/>';
+      const opening = '<rect x="86" y="10" width="82" height="142" fill="#36545a" stroke="#806049" stroke-width="8"/><path d="M95 19h64v124H95Z" fill="#29464d"/><path d="M82 158h90" stroke="#c58a60" stroke-width="6"/>';
+      return installed ? fitted : opening;
+    }
+    const glass = installed ? '<rect x="63" y="27" width="134" height="101" rx="4" fill="#a7d7d9" stroke="#6e4c38" stroke-width="8"/><path d="M130 30v95M66 78h128" stroke="#8a5e3d" stroke-width="7"/><path d="m76 39 35-8m57 59 22-17" stroke="#fff" stroke-width="5" opacity=".72"/>' : '<rect x="61" y="25" width="138" height="105" fill="#36545a" stroke="#806049" stroke-width="9"/><path d="M72 36 99 63m80-24-33 31m-68 43 23-22m54 22 29-26" stroke="#ddf1e7" stroke-width="4"/><path d="M65 23h136" stroke="#c58a60" stroke-width="7"/>';
+    return `${shadow}<path d="M34 25h192v118H34Z" fill="#edcfa6" stroke="#9b7757" stroke-width="5"/>${glass}<path d="M49 143h163" stroke="#b78459" stroke-width="8"/>`;
+  }
+  if (mode === 'door') {
+    const door = installed ? `<path d="M75 142V48q0-35 55-35t55 35v94Z" fill="#${designId==='coastal'?'739c91':designId==='modern'?'84999a':'a56b45'}" stroke="${outline}" stroke-width="8"/><path d="M87 139V51q0-25 43-25t43 25v88Z" fill="${colors.wood}" stroke="#704a32" stroke-width="4"/><path d="M97 49h27v34H97Zm39 0h27v34h-27Zm-39 44h27v34H97Zm39 0h27v34h-27Z" fill="${colors.trim}" stroke="#725038" stroke-width="3"/><circle cx="157" cy="96" r="5" fill="#f4d17a"/>` : '<path d="M68 145V49q0-41 62-41t62 41v96Z" fill="#344d55" stroke="#7a563b" stroke-width="8"/><path d="M82 143V50q0-29 48-29t48 29v93" fill="none" stroke="#efdec0" stroke-width="5" stroke-dasharray="8 7"/>';
+    return `${shadow}<path d="M37 147V50q0-62 93-62t93 62v97" fill="#eacb9a" stroke="#8f6d4e" stroke-width="8"/>${door}`;
+  }
+  if (mode === 'roof') {
+    // A roof repair is a fitted shingle patch, not a wall panel. Keep the
+    // drawing's transparent margins so its artwork-space anchor stays stable.
+    const patch = installed
+      ? `<path d="m53 83 77-54 77 54-10 12-67-45-67 46Z" fill="${colors.wood}" stroke="#654731" stroke-width="6" stroke-linejoin="round"/><path d="m71 79 59-41 60 41M83 88l47-33 48 33" fill="none" stroke="${colors.trim}" stroke-width="5" stroke-linecap="round"/><path d="m64 94 66-46 67 46" fill="none" stroke="#76523a" stroke-width="4"/>`
+      : '<path d="m53 83 77-54 77 54M68 94l62-43 60 43" fill="none" stroke="#76533b" stroke-width="7" stroke-linecap="round"/><path d="m91 65 39-27 38 27" fill="#3d3936" stroke="#fff3d8" stroke-width="2.5" stroke-dasharray="7 5"/><path d="m105 65 19-13m10 17 17-12" stroke="#ba8655" stroke-width="4" stroke-linecap="round"/>';
+    return patch;
+  }
+  if (mode === 'furniture') return `${shadow}${installed ? furnitureDrawing(colors, true) : '<path d="M20 133h220" stroke="#8a7152" stroke-width="5" stroke-dasharray="9 8"/><path d="M40 120h180" stroke="#fff3d8" stroke-width="3" opacity=".7"/>'}`;
+  if (mode === 'plants') return `${shadow}${installed ? plantDrawing(item, colors) : '<path d="M20 112h220l-10 30H30Z" fill="#b3815e" stroke="#704e3a" stroke-width="5"/><path d="M33 111q54-14 98 0t104 0" fill="#604b35" stroke="#48392a" stroke-width="3"/><path d="M72 104v-12m58 12V88m54 16v-9" stroke="#82946a" stroke-width="3" opacity=".5"/>'}`;
+  if (mode === 'remove') {
+    const debris = '<path d="m30 131 17-22 17 15 15-36 21 37 17-25 17 30 16-19 26 25H24Z" fill="#8b7b68" stroke="#625849" stroke-width="4"/><path d="m53 112 13 11m30-25 12 14m34 1 11 6" stroke="#e0c69a" stroke-width="4"/>';
+    return `${shadow}${installed ? '<path d="M24 133h212" stroke="#a47d59" stroke-width="5"/><path d="M44 138h172" stroke="#f2e2c3" stroke-width="3" stroke-dasharray="8 9"/>' : debris}`;
+  }
+  if (mode === 'broken') {
+    const label = /stair|step/.test(item) ? 'steps' : /lens/.test(item) ? 'lens' : /saw/.test(item) ? 'saw' : 'beam';
+    if (label === 'steps') return `${shadow}<path d="M28 130h57v-25h51V80h54V53h42" fill="none" stroke="${installed?'#b98756':'#80523a'}" stroke-width="21" stroke-linejoin="round"/><path d="M85 130v-25m51 0V80m54 0V53" stroke="#e1bd8b" stroke-width="4"/>${installed ? '<path d="M27 51 223 13" stroke="#8e603e" stroke-width="7"/><path d="m35 46 13 14m153-56 14 15" stroke="#e5c48e" stroke-width="4"/>' : '<path d="m117 71 12 12-11 10 12 10" fill="none" stroke="#43362f" stroke-width="5"/>'}`;
+    if (label === 'lens') return `${shadow}<circle cx="130" cy="78" r="49" fill="${installed?'#b9e8e4':'#6d7772'}" stroke="#845d3c" stroke-width="10"/><circle cx="130" cy="78" r="34" fill="${installed?'#fff4b5':'#56635f'}" stroke="#d6aa5c" stroke-width="5"/>${installed ? '<path d="M72 78h116" stroke="#fff" stroke-width="8" opacity=".78"/>' : '<path d="m104 50 17 20-13 13 20 21" fill="none" stroke="#493c35" stroke-width="5"/>'}`;
+    return `${shadow}<path d="M31 76 220 63l9 33-189 18Z" fill="${installed?'#b98755':'#9c704c'}" stroke="#634a37" stroke-width="6"/><path d="M52 120v18m150-47 5 30" stroke="#76533b" stroke-width="8"/>${installed ? '<path d="M48 83h158M57 97h133" stroke="#e0bd87" stroke-width="5"/>' : '<path d="m120 70 14 15-16 8 15 11" fill="none" stroke="#41362f" stroke-width="6"/>'}`;
+  }
+  if (mode === 'counter') {
+    const surface = installed ? '<path d="M22 73h216l-12 23H35Z" fill="#c38f5d" stroke="#704d34" stroke-width="6"/><path d="M37 97v43m171-43v43" stroke="#79543a" stroke-width="10"/><path d="M44 79h171" stroke="#f0d09a" stroke-width="5"/><rect x="73" y="51" width="37" height="22" rx="4" fill="#f7e7bf" stroke="#8a6446" stroke-width="4"/><path d="M82 51v-11h19v11" fill="none" stroke="#8a6446" stroke-width="4"/>' : '<path d="M28 74h208l-10 24H38Z" fill="#9d704d" stroke="#664a36" stroke-width="6"/><path d="M42 99v42m169-42v42" stroke="#76533b" stroke-width="10"/><path d="m115 76 12 10-10 5 14 5" fill="none" stroke="#43352d" stroke-width="5"/><path d="M55 91h40" stroke="#40362d" stroke-width="4"/>';
+    return `${shadow}${surface}`;
+  }
+  if (mode === 'shelves') {
+    const books = '<path d="M55 42h18v30H55Zm25-5h14v35H80Zm20 8h18v27h-18Zm30-3h15v30h-15Zm22 5h19v25h-19Zm-93 44h18v25H59Zm24-4h15v29H83Zm23 5h18v24h-18Zm26-5h19v29h-19Zm28 7h19v22h-19Z" fill="#e6c88d" stroke="#8a6644" stroke-width="3"/>';
+    return `${shadow}${installed ? '<path d="M43 29v112m177-112v112M37 42h190M37 83h190M37 125h190" fill="none" stroke="#80583a" stroke-width="9" stroke-linecap="round"/>'+books : '<path d="M42 30v110m180-110v110" stroke="#a58362" stroke-width="6" stroke-dasharray="9 9"/><path d="M39 82h187" stroke="#c7ae8b" stroke-width="4" stroke-dasharray="8 8"/>'}`;
+  }
+  if (mode === 'mural') {
+    return `${shadow}<rect x="29" y="22" width="202" height="117" rx="5" fill="${installed?'#f5e8c7':'#e8d6b8'}" stroke="#745b46" stroke-width="7"/>${installed ? '<path d="M39 96q47-40 93 0t88 0v34H39Z" fill="#6db5bb"/><path d="m50 95 37-37 32 37m23-1 32-34 35 35" fill="#85a768"/><circle cx="178" cy="52" r="15" fill="#efbf55"/><path d="M51 46h38" stroke="#e88991" stroke-width="8" stroke-linecap="round"/>' : '<path d="M48 43h94m-94 18h145m-145 18h79" stroke="#d8c7aa" stroke-width="4" stroke-dasharray="7 8"/>'}`;
+  }
+  if (mode === 'add') {
+    if (/shelter/.test(item)) {
+      const roof = '<path d="M42 57 130 16l88 41-8 13-80-36-80 36Z" fill="#9e6947" stroke="#604733" stroke-width="6" stroke-linejoin="round"/><path d="m61 58 69-32 70 32" fill="none" stroke="#d7ad74" stroke-width="5" stroke-linecap="round"/><path d="M48 70v72m164-72v72M59 73v66m142-66v66" stroke="#76553b" stroke-width="8" stroke-linecap="round"/><path d="M46 142h168" stroke="#604733" stroke-width="8"/>';
+      const shelterBefore = '<path d="M42 57 130 16l88 41M48 70v72m164-72v72" fill="none" stroke="#8e7256" stroke-width="6" stroke-dasharray="9 8"/><path d="M55 143h150" fill="none" stroke="#8e7256" stroke-width="5" stroke-dasharray="8 7"/>';
+      const shelterAfter = `${roof}<path d="M55 70h150v72H55Z" fill="#e2c899" fill-opacity=".22" stroke="#76553b" stroke-width="4"/><path d="M73 111h72v7H73Zm7 8v19m57-19v19" fill="#b98553" stroke="#765239" stroke-width="3"/><path d="M164 91v42m0-34 27-13m-27 25 27 13" fill="none" stroke="#946b46" stroke-width="5" stroke-linecap="round"/><path d="M158 88h12m-12 8h12" stroke="#d3ae7b" stroke-width="3"/>`;
+      return `${shadow}${installed ? shelterAfter : shelterBefore}`;
+    }
+    if (/lantern|beacon|light|lamp/.test(item)) return `${shadow}<path d="M130 137V44" stroke="#75563c" stroke-width="9"/><path d="M92 50h76l-9 49h-58Z" fill="${installed?'#e4aa51':'#657d7a'}" stroke="#674a34" stroke-width="6"/><path d="M105 60h50v27h-50Z" fill="${installed?'#fff2a9':'#526d70'}" stroke="#f4dfae" stroke-width="4"/><path d="M84 48h92m-73-11h55" stroke="#78583c" stroke-width="7" stroke-linecap="round"/>${installed ? '<path d="M83 72h-20m123 0h20" stroke="#ffef9c" stroke-width="5" opacity=".85"/>' : ''}`;
+    if (/bell/.test(item)) return `${shadow}<path d="M130 49v-7" stroke="#76563a" stroke-width="5" stroke-linecap="round"/><circle cx="130" cy="39" r="4" fill="#e6c779" stroke="#76563a" stroke-width="2"/><path d="M109 69q1-25 21-25t21 25l7 9h-56Z" fill="${installed?'#d5a34e':'#d2b998'}" stroke="#755538" stroke-width="4"/><path d="M103 79h54" stroke="#efcf75" stroke-width="4" stroke-linecap="round"/><circle cx="130" cy="84" r="3" fill="#a6703b"/>${installed ? '<path d="m113 53 6-5m28 5-6-5" stroke="#fff5c3" stroke-width="2"/>' : ''}`;
+    if (/sign|marker|label|chart/.test(item)) return `${shadow}<path d="M128 83v62" stroke="#76583d" stroke-width="9"/><path d="M48 27h164v74H48Z" fill="${installed?'#c68a54':'#b19b7c'}" stroke="#6f523a" stroke-width="7"/><path d="M61 40h138v48H61Z" fill="#f4e6c7" stroke="#a67b50" stroke-width="3"/>${installed ? '<path d="M79 54h101m-101 15h79" stroke="#8b6444" stroke-width="6" stroke-linecap="round"/><circle cx="70" cy="48" r="3" fill="#fff"/>' : '<path d="M77 62h83" stroke="#c2ae91" stroke-width="5" stroke-dasharray="8 7"/>'}`;
+    if (/rope|mooring/.test(item)) return `${shadow}<path d="M42 121h177" stroke="#76583e" stroke-width="16" stroke-linecap="round"/><path d="M67 117V74q0-24 23-24t23 24v18q0 21 22 21t22-21V64q0-18 21-18" fill="none" stroke="${installed?'#d5a661':'#827562'}" stroke-width="10" stroke-linecap="round"/>${installed ? '<path d="M71 86h35m53 4h34" stroke="#f1d18e" stroke-width="3"/>' : '<path d="m128 87 11 11-13 8 11 11" fill="none" stroke="#493b30" stroke-width="5"/>'}`;
+    if (/seed|library|cabinet|records/.test(item)) return `${shadow}<path d="M55 62 130 23l75 39" fill="#a76f47" stroke="#604633" stroke-width="6"/><rect x="61" y="61" width="138" height="77" rx="4" fill="${installed?'#c18a5a':'#aa7d59'}" stroke="#654a34" stroke-width="6"/><rect x="75" y="76" width="109" height="45" rx="5" fill="#f1dfb8" stroke="#76543a" stroke-width="4"/><path d="M89 89h80m-80 13h57" stroke="#b2895d" stroke-width="4"/>${installed ? '<path d="M91 115v-16q12-15 24 0v16m22 0V99q12-16 24 0v16" fill="#83a35d" stroke="#577847" stroke-width="3"/>' : ''}`;
+    if (/platform|deck|board|rail|step|stair|piling|brace|stage/.test(item)) return `${shadow}<path d="M25 76h220v22H25Zm13 25h194v18H38Zm18 21h158v15H56Z" fill="${installed?'#b7844f':'#9e7958'}" stroke="#654a35" stroke-width="5"/><path d="M44 82h181m-169 27h157m-140 21h121" stroke="#e5c28c" stroke-width="4"/>${installed ? '<path d="M42 75v-37m185 37V38M42 47h185" fill="none" stroke="#78563a" stroke-width="7"/>' : '<path d="m108 76 13 12-12 8 16 9" fill="none" stroke="#4a392e" stroke-width="5"/>'}`;
+    if (/canopy|awning|shade/.test(item)) return `${shadow}<path d="M54 138V54m150 84V54M49 55h161" fill="none" stroke="#75543a" stroke-width="8"/><path d="M42 57 69 27h120l28 30Z" fill="${installed?colors.cushion:'#b5a78d'}" stroke="#684a36" stroke-width="6"/><path d="M71 29v26m40-26v26m42-26v26" stroke="#fff3d9" stroke-width="5"/>`;
+    if (/bird|perch/.test(item)) return `${shadow}<path d="M132 138V46m-39 39h79" stroke="#78563c" stroke-width="9" stroke-linecap="round"/>${installed ? '<path d="M116 64q16-19 34 0l-4 17h-28Z" fill="#f1eee0" stroke="#5f594d" stroke-width="4"/><circle cx="139" cy="68" r="2.5" fill="#453d32"/><path d="m148 72 12 4-12 4m-20 1-12 12" fill="none" stroke="#5f594d" stroke-width="3"/>' : ''}`;
+    return `${shadow}<path d="M46 136V72h168v64" fill="#e3cda4" stroke="#73543b" stroke-width="7"/><path d="M60 82h140m-140 20h140m-140 20h140" stroke="#a27d54" stroke-width="5"/>${installed ? '<path d="M76 69h105" stroke="#f2d68e" stroke-width="7"/>' : ''}`;
+  }
+  return `${shadow}<path d="M30 128h200" stroke="${outline}" stroke-width="5"/>`;
+}
+
+function featureSvg(spec, locationId, installed, designId = '', className = '') {
+  const drawing = objectDrawing(spec, locationId, installed, designId);
+  return `<svg class="${className}" viewBox="0 0 260 160" role="img" aria-label="${installed ? spec.after : spec.before}" xmlns="http://www.w3.org/2000/svg">${drawing}</svg>`;
+}
+
+function patioGroundMarkup() {
+  return `<path d="M0 535q138-33 258-9t245 0q170-18 521 12v230H0Z" fill="#d9c6a0" fill-opacity=".12" stroke="#ab8e69" stroke-width="2" stroke-opacity=".35"/><path d="M0 582q162-22 320 0t345-1q172-13 359 1M0 635q148-17 309 0t360-2q177-12 355 0M0 690q168-14 324 0t353-1q171-9 347 0M122 540l-7 42m106-45-6 45m151-39-5 47m157-50-8 45m165-39-6 46m99-42-7 45M60 634l7 53m199-49-5 51m176-52-7 50m170-48-5 52m176-53-7 54" fill="none" stroke="#b99d78" stroke-width="3" opacity=".3"/>`;
+}
+
+function patioFurnitureMarkup(styleId) {
+  const colors = FEATURE_COLORS[styleId] || FEATURE_COLORS.default;
+  const set = (x, y, scale) => `<g transform="translate(${x} ${y}) scale(${scale})">${furnitureDrawing(colors)}</g>`;
+  return `<g class="repair-patio-furniture">${set(115,518,.92)}${set(588,517,.93)}</g>`;
+}
+
+const SCENE_LAYOUTS = {
+  // Positions match the actual object centers in each 1024 × 768 scene,
+  // including the strong diagonal perspective of the pier and wharf artwork.
+  garden: [[380,475,300,170],[100,465,300,230],[660,440,300,230],[700,35,270,350],[370,300,290,250],[170,535,690,150],[665,400,260,200],[70,430,360,245]],
+  pier: [[340,520,470,230],[500,420,300,190],[420,300,180,220],[700,245,190,180],[600,500,340,210],[100,375,350,250],[700,330,250,230],[400,510,480,230]],
+  wharf: [[340,520,470,230],[500,420,300,190],[420,300,180,220],[700,245,190,180],[600,500,340,210],[100,375,350,250],[700,330,250,230],[400,510,480,230]],
+  office: [[370,475,300,190],[390,230,260,230],[665,235,240,310],[565,425,220,180],[380,450,300,200],[420,480,260,180],[680,290,230,250],[390,405,280,210]],
+  archive: [[370,475,300,190],[665,400,240,180],[170,410,250,250],[330,390,260,180],[390,455,300,210],[680,290,230,220],[665,400,240,250],[390,445,300,200]],
+  market: [[340,540,360,180],[180,410,280,220],[600,270,250,210],[300,520,430,190],[310,260,400,250],[650,440,280,230],[320,410,370,230],[300,195,430,180]],
+  festival: [[340,540,360,180],[180,410,280,220],[600,270,250,210],[300,520,430,190],[310,260,400,250],[650,440,280,230],[320,410,370,230],[300,195,430,180]],
+  lighthouse: [[400,520,280,190],[350,420,320,220],[630,190,200,250],[420,285,210,220],[440,300,220,210],[410,275,240,220],[210,350,250,230],[440,220,230,250]]
+};
+
+const CAFE_ANCHORS = {
+  // Every target is in source-art coordinates; the scene camera follows these
+  // points so the active repair stays on screen on narrow portrait devices.
+  1: { x:360, y:566, width:300, height:130, layer:'damaged', zIndex:20, renderedByScene:true },
+  2: { x:340, y:72, width:360, height:210, layer:'architecture', zIndex:30, renderedByScene:true },
+  3: { x:248, y:285, width:230, height:225, layer:'architecture', zIndex:32, renderedByScene:true },
+  4: { x:260, y:432, width:500, height:250, layer:'restored', zIndex:35, renderedByScene:true },
+  5: { x:390, y:390, width:250, height:280, layer:'architecture', zIndex:34, renderedByScene:true },
+  6: { x:280, y:335, width:470, height:285, layer:'restored', zIndex:35, renderedByScene:true },
+  7: { x:190, y:492, width:640, height:235, layer:'decorations', zIndex:45, renderedByScene:true },
+  // Small brass fitting above the café's centered front doorway.
+  8: { x:480, y:343, width:110, height:80, layer:'decorations', zIndex:46, animationAnchor:'bell' }
+};
+
+function repairObjectId(locationId, level) {
+  const cafeIds = {
+    1:'cafe_storm_debris', 2:'cafe_roof_section_01', 3:'cafe_window_01',
+    4:'cafe_dining_set', 5:'cafe_front_door', 6:'cafe_kitchen_counter',
+    7:'cafe_garden_seating', 8:'cafe_welcome_bell'
+  };
+  if (locationId === 'cafe') return cafeIds[level];
+  const spec = REPAIR_DETAILS[locationId]?.[level - 1];
+  const stem = String(spec?.item || `repair_${level}`).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  return `${locationId}_${stem}`;
+}
+
+function sceneAnchor(locationId, level) {
+  if (locationId === 'cafe') return CAFE_ANCHORS[level] || { x:365,y:450,width:290,height:200,layer:'decorations',zIndex:40 };
+  const [x,y,width,height] = SCENE_LAYOUTS[locationId]?.[level - 1] || [394,370,280,206];
+  const mode = REPAIR_DETAILS[locationId]?.[level - 1]?.mode || '';
+  const layer = ['roof','window','door','counter','shelves','mural'].includes(mode)
+    ? 'architecture'
+    : mode === 'remove' || mode === 'broken' ? 'damaged'
+      : mode === 'furniture' || mode === 'plants' || mode === 'add' ? 'decorations' : 'restored';
+  return { x,y,width,height,layer,zIndex:layer === 'architecture' ? 30 : layer === 'damaged' ? 25 : 40 };
+}
+
+export const RESTORATION_OBJECT_REGISTRY = Object.freeze(Object.fromEntries(
+  Object.entries(REPAIR_DETAILS).flatMap(([locationId, repairs]) => repairs.map((spec,index) => {
+    const level = index + 1;
+    const anchor = sceneAnchor(locationId, level);
+    const id = repairObjectId(locationId, level);
+    return [id, Object.freeze({
+      id, locationId, level, damagedImage:spec.before, restoredImage:spec.after,
+      x:anchor.x, y:anchor.y, width:anchor.width, height:anchor.height,
+      zIndex:anchor.zIndex, layer:anchor.layer,
+      transform:anchor.transform || '', animationAnchor:anchor.animationAnchor || '',
+      renderedByScene:Boolean(anchor.renderedByScene), item:spec.item, mode:spec.mode
+    })];
+  }))
+));
+
+export function getRestorationObject(objectId) {
+  return RESTORATION_OBJECT_REGISTRY[objectId] || null;
+}
+
+export function restorationObjectIds(locationId) {
+  return Object.values(RESTORATION_OBJECT_REGISTRY).filter(object => object.locationId === locationId).map(object => object.id);
+}
+
+function featureGroup(locationId, level, installed, styleId = '', isCurrent = false, allowSceneCurrent = false) {
+  const spec = REPAIR_DETAILS[locationId]?.[level - 1];
+  const id = repairObjectId(locationId, level);
+  const anchor = RESTORATION_OBJECT_REGISTRY[id];
+  if (!spec || !anchor || (anchor.renderedByScene && !allowSceneCurrent)) return '';
+  const contents = isCurrent
+    ? `<g class="repair-feature-before">${objectDrawing(spec, locationId, false, styleId)}</g><g class="repair-feature-after">${objectDrawing(spec, locationId, true, styleId)}</g>`
+    : `<g class="repair-feature-built">${objectDrawing(spec, locationId, true, styleId)}</g>`;
+  return `<svg class="repair-scene-feature ${isCurrent ? 'repair-feature-current' : 'repair-feature-built'} ${isCurrent ? `feature-mode-${spec.mode}` : ''}" data-restoration-object="${id}" data-scene-layer="${anchor.layer}" x="${anchor.x}" y="${anchor.y}" width="${anchor.width}" height="${anchor.height}" viewBox="0 0 260 160" preserveAspectRatio="none" aria-label="${isCurrent ? spec.item : `Restored ${spec.item}`}">${contents}</svg>`;
+}
+
+function repairWorkEffectMarkup(locationId, level, phase) {
+  const spec = REPAIR_DETAILS[locationId]?.[level - 1];
+  const anchor = RESTORATION_OBJECT_REGISTRY[repairObjectId(locationId, level)];
+  if (!spec || !anchor || !['objective','work'].includes(phase)) return '';
+  const cx = anchor.x + anchor.width / 2;
+  const cy = anchor.y + anchor.height / 2;
+  const radius = Math.max(46, Math.min(94, Math.min(anchor.width, anchor.height) * .38));
+  if (phase === 'objective') {
+    return `<g class="repair-target-reticle" transform="translate(${cx} ${cy})" aria-hidden="true"><circle r="${radius}"/><path d="M0 ${-radius - 22}v14M0 ${radius + 8}v14M${-radius - 22} 0h14M${radius + 8} 0h14"/></g>`;
+  }
+  const toolX = cx + radius * .76;
+  const toolY = cy - radius * .72;
+  return `<g class="repair-work-action feature-mode-${spec.mode}" transform="translate(${cx} ${cy})" aria-hidden="true">
+    <circle class="repair-work-halo" r="${radius}"/>
+    <circle class="repair-work-orbit" r="${radius * .78}"/>
+    <path class="repair-work-spark" d="M${-radius * .72} ${-radius * .35}l8 13 13-8-8 13 12 8-15-2-6 14-2-16-14-3 14-5Z"/>
+    <path class="repair-work-spark repair-work-spark-two" d="M${radius * .55} ${radius * .48}l5 9 9-5-5 9 9 5-11-1-4 10-2-11-10-2 10-4Z"/>
+    <g transform="translate(${toolX - cx} ${toolY - cy})"><g class="repair-work-tool"><circle r="35"/><text y="13" text-anchor="middle">${repairTool(spec)}</text></g></g>
+  </g>`;
+}
+
+export function repairEnvironmentMarkup(locationId, restoredThrough = 0, activeLevel = 0, activeCompleted = false, activeStyle = '', stylesByLevel = {}, phase = 'objective') {
+  const levels = Math.max(0, Math.min(8, Number(restoredThrough) || 0));
+  const active = Math.max(0, Math.min(8, Number(activeLevel) || 0));
+  const layers = { architecture:[], damaged:[], restored:[], decorations:[], effects:[] };
+  const addFeature = (level, styleId = '', isCurrent = false) => {
+    const id = repairObjectId(locationId, level);
+    const object = RESTORATION_OBJECT_REGISTRY[id];
+    if (!object) return;
+    if (object.renderedByScene && !(isCurrent && phase === 'work')) {
+      layers[object.layer].push(`<g data-restoration-object="${id}" data-scene-layer="${object.layer}" data-anchor="${object.x},${object.y},${object.width},${object.height}" aria-hidden="true"></g>`);
+      return;
+    }
+    const markup = featureGroup(locationId, level, isCurrent ? activeCompleted : true, styleId, isCurrent, isCurrent && phase === 'work');
+    if (markup) layers[object.layer].push(markup);
+  };
+  for (let level = 1; level <= levels; level += 1) addFeature(level, stylesByLevel[level] || '', false);
+  if (active && active <= 8 && REPAIR_DETAILS[locationId]?.[active - 1]) {
+    addFeature(active, activeStyle || stylesByLevel[active] || '', true);
+    const effect = repairWorkEffectMarkup(locationId, active, phase);
+    if (effect) layers.effects.push(effect);
+  }
+  const layerMarkup = Object.entries(layers).map(([layer,items]) =>
+    `<g class="restoration-layer-${layer}" data-scene-layer="${layer}">${items.join('')}</g>`
+  ).join('');
+  return `<svg class="restoration-object-layer" viewBox="0 0 1024 768" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">${layerMarkup}</svg>`;
+}
+
+export function repairDesignArtMarkup(locationId, level, designId = '') {
+  const spec = REPAIR_DETAILS[locationId]?.[level - 1];
+  if (!spec) return '';
+  if (locationId === 'cafe' && level === 7) {
+    const colors = FEATURE_COLORS[designId] || FEATURE_COLORS.default;
+    return `<svg class="repair-choice-drawing patio-choice-drawing" viewBox="0 0 260 160" role="img" aria-label="${designId.replaceAll('-', ' ')} garden table, chairs and flower planters" xmlns="http://www.w3.org/2000/svg"><path d="M0 121q65-13 128 0t132 0v39H0Z" fill="#dac59e"/><path d="M0 137h260M54 124v36m70-36v36m73-36v36" stroke="#b59a73" stroke-width="3"/>${furnitureDrawing(colors, true)}</svg>`;
+  }
+  if (locationId === 'cafe' && level === 4) {
+    const colors = FEATURE_COLORS[designId] || FEATURE_COLORS.default;
+    const floor = designId === 'seafoam' ? '#88aaa0' : designId === 'rose' ? '#bd796d' : '#d9a75f';
+    return `<svg class="repair-choice-drawing" viewBox="0 0 260 160" role="img" aria-label="${designId} stained café floor with tables and chairs" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h260v160H0Z" fill="#eed7b4"/><path d="M0 0h260v160H0Z" fill="${floor}" opacity=".72"/><path d="M0 35h260M0 77h260M0 119h260M65 0v160m68-160v160m64-160v160" stroke="#fff2d8" stroke-width="3" opacity=".7"/><g transform="translate(5 4) scale(.94)">${furnitureDrawing(colors, true)}</g></svg>`;
+  }
+  const svg = featureSvg(spec, locationId, true, designId, 'repair-choice-drawing');
+  return svg.replace('role="img"', `role="img"`);
+}
+
+export function repairFocusSceneMarkup(locationId, level, installed = false, designId = '') {
+  const spec = REPAIR_DETAILS[locationId]?.[level - 1];
+  if (!spec) return '';
+  const illustration = objectDrawing(spec, locationId, installed, designId);
+  const ariaLabel = installed ? spec.after : spec.before;
+  return `<svg class="repair-focus-illustration" viewBox="0 0 260 160" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${ariaLabel}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="repairFocusLight" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff7e5"/><stop offset="1" stop-color="#dfeddf"/></linearGradient></defs><rect width="260" height="160" rx="13" fill="url(#repairFocusLight)"/><svg x="0" y="0" width="260" height="160" viewBox="0 0 160 102" preserveAspectRatio="none">${siteBackdrop(locationId)}</svg><path d="M0 151q65-9 130 0t130 0v9H0Z" fill="#fff7e3" fill-opacity=".68"/><g class="repair-focus-object">${illustration}</g></svg>`;
 }
