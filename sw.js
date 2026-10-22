@@ -1,4 +1,4 @@
-const CACHE_NAME = 'harbor-whispers-v52';
+const CACHE_NAME = 'harbor-whispers-v57';
 const APP_FILES = [
   './',
   './index.html',
@@ -41,6 +41,11 @@ const APP_FILES = [
   './assets/harbor-market-atlas.webp',
   './assets/harbor-seafood-atlas.webp',
   './assets/harbor-pantry-atlas.webp',
+  './assets/harbor-storage-button.webp',
+  './assets/harbor-power-tool-button.webp',
+  './assets/harbor-gold-coin.webp',
+  './assets/harbor-energy-bolt.webp',
+  './assets/harbor-pink-gem.webp',
   './assets/audio/harbor-music.mp3',
   './assets/audio/merge-pop.mp3'
 ];
