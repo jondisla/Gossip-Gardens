@@ -3,6 +3,7 @@ import { FAMILIES, MAIN_FAMILIES, GENERATOR_DEFS, CHARS, REQUEST_NOTES, CHAPTER_
 import { repairDetailState, repairEnvironmentMarkup, repairDesignArtMarkup, repairFocusSceneMarkup } from './repair-details.js';
 const GEN_CHARGES = 12;
 const GEN_COOLDOWN_MS = 20_000;
+const MERGE_ENERGY_COST = 1;
 const MAX_ENERGY = 100;
 const ENERGY_TICK_MS = 60_000;
 const OFFLINE_CAP_MS = 8 * 60 * 60 * 1000;
@@ -313,6 +314,7 @@ function makeBoard(families) {
   if (families.length > 1) {
     cells[24] = { fam: families[2], tier: 1, covered: 1 };
     cells[25] = { fam: families[2], tier: 1 };
+    cells[33] = { cache: 'energy', amount: 8, covered: 1 };
     cells[17] = { fam: families[0], tier: 1 };
     cells[18] = { fam: families[0], tier: 1 };
     cells[31] = { fam: families[1], tier: 1 };
@@ -411,6 +413,13 @@ function grantEnergy(amount) {
   state.energy = Math.min(maxEnergy(), Math.max(0, state.energy + amount));
 }
 
+function spendEnergy(amount = 1) {
+  const cost = Math.max(0, Number(amount) || 0);
+  if (state.energy < cost) return false;
+  state.energy -= cost;
+  return true;
+}
+
 function grantXP(amount) {
   state.xp = Math.max(0, (Number(state.xp) || 0) + Math.max(0, amount));
   while (state.playerLevel < 50 && state.xp >= xpForNextLevel()) {
@@ -486,6 +495,10 @@ function migrateBoard(previous, fallback = [], overflow = []) {
 
 function normalizeBoardCell(cell, savedGeneratorLevels = {}) {
   if (!cell) return null;
+  if (cell.cache === 'energy') {
+    const amount = Number(cell.amount);
+    return { cache:'energy', amount:Number.isFinite(amount) ? Math.max(1,Math.min(25,amount)) : 8, covered:1 };
+  }
   if (cell.gen) {
     if (!FAMILIES[cell.gen]) return null;
     const level = Math.max(1, Math.min(6, Number(savedGeneratorLevels[cell.gen] || cell.level) || 1));
@@ -661,7 +674,8 @@ let selectedIndex = -1;
 let drag = null;
 let dialogueQueue = [];
 let dialogueOpen = false;
-let feedbackMessage = 'Make treats, fill requests for stars, and spend coins to restore the harbor!';
+const defaultBoardHint = 'Make treats, fill requests for stars, and spend coins to restore the harbor!';
+let feedbackMessage = defaultBoardHint;
 let tutorialStep = null;
 let tutorialGeneratorIndex = 6;
 let tutorialMergeTargets = null;
@@ -1048,7 +1062,7 @@ function tapGenerator(index) {
   const definition = generatorDefinition(generator.gen);
   const energyCost = definition.energyCost || 1;
   if (state.energy < energyCost) {
-    feedbackMessage = `You need ${energyCost}⚡. Orders, daily gifts and level-ups restore energy.`;
+    feedbackMessage = `You need ${energyCost}⚡. Energy refills over time; orders, daily gifts, level-ups and Town-board straw stashes can help.`;
     render();
     return;
   }
@@ -1077,6 +1091,20 @@ function tapGenerator(index) {
   if (tutorialStep === 0) advanceTutorial(1);
 }
 
+function spawnEnergyCache() {
+  if (currentBoardKey !== 'main' || state.energy >= maxEnergy()) return false;
+  const boardCells = mainBoard();
+  if (boardCells.filter(cell => cell?.cache === 'energy').length >= 2 || Math.random() >= 0.14) return false;
+  const emptySpots = boardCells.map((cell, index) => cell ? -1 : index).filter(index => index >= 0);
+  if (!emptySpots.length) return false;
+  const spot = emptySpots[Math.floor(Math.random() * emptySpots.length)];
+  const amount = 5 + Math.floor(Math.random() * 6);
+  boardCells[spot] = { cache:'energy', amount, covered:1 };
+  feedbackMessage = 'A hidden energy stash appeared under a straw bundle. Tap it to collect the ⚡!';
+  showFloat('Hidden energy found!');
+  return true;
+}
+
 function recordMerge(familyId, tier, mergeCount = 1, bonusOutputs = 0) {
   state.stats.merges += 1;
   updateDailyProgress('merges');
@@ -1089,10 +1117,7 @@ function recordMerge(familyId, tier, mergeCount = 1, bonusOutputs = 0) {
   }
   if (mergeCount === 5) state.stats.fiveMerges += 1;
   if (currentBoardKey === 'main') recordStoryAction('merges', mergeCount);
-  if (Math.random() < 0.08) {
-    grantEnergy(1);
-    showFloat('+1⚡ bonus');
-  }
+  spawnEnergyCache();
   checkAchievements();
   if (bonusOutputs) recordDiscovery(familyId, tier + 1);
 }
@@ -1124,10 +1149,19 @@ function moveOrMerge(from, to) {
     return true;
   }
   if (second && second.fam === first.fam && second.tier === first.tier && first.tier < FAMILIES[first.fam].items.length) {
+    if (!spendEnergy(MERGE_ENERGY_COST)) {
+      feedbackMessage = `Merging costs ${MERGE_ENERGY_COST}⚡. Energy refills over time; tap a hidden straw bundle for a bonus stash.`;
+      render();
+      return true;
+    }
+    const uncoveredBundle = Boolean(second.covered);
     cells[from] = null;
     cells[to] = { fam:first.fam, tier:first.tier + 1 };
-    feedbackMessage = `${FAMILIES[first.fam].name}: ${FAMILIES[first.fam].items[first.tier - 1]} → ${FAMILIES[first.fam].items[first.tier]}`;
+    feedbackMessage = uncoveredBundle
+      ? `${FAMILIES[first.fam].name} bundle uncovered! Merge cost: ${MERGE_ENERGY_COST}⚡.`
+      : `${FAMILIES[first.fam].name}: ${FAMILIES[first.fam].items[first.tier - 1]} → ${FAMILIES[first.fam].items[first.tier]} · −${MERGE_ENERGY_COST}⚡`;
     recordMerge(first.fam, first.tier);
+    if (uncoveredBundle) showFloat(`Bundle uncovered · −${MERGE_ENERGY_COST}⚡`);
     playPop();
     if (tutorialStep === 1) advanceTutorial(2);
     placePendingGenerators();
@@ -1135,7 +1169,7 @@ function moveOrMerge(from, to) {
     return true;
   }
   if (second?.covered) {
-    feedbackMessage = 'Match the same item to clear the straw and uncover what is underneath.';
+    feedbackMessage = 'Merge an uncovered matching item into this straw bundle to reveal its hidden upgrade.';
     render();
     return true;
   }
@@ -1156,6 +1190,11 @@ function mergeSelectedGroup(index, groupSize) {
   if (!cell || cell.gen || cell.covered || cell.locked || cell.tier >= FAMILIES[cell.fam].tiers.length) return;
   const matches = board().map((entry, cellIndex) => entry && !entry.gen && !entry.covered && !entry.locked && entry.fam === cell.fam && entry.tier === cell.tier ? cellIndex : -1).filter(cellIndex => cellIndex >= 0).slice(0, groupSize);
   if (matches.length < groupSize) return;
+  if (!spendEnergy(MERGE_ENERGY_COST)) {
+    feedbackMessage = `Merging costs ${MERGE_ENERGY_COST}⚡. Energy refills over time; hidden straw bundles may hold bonus energy.`;
+    render();
+    return;
+  }
   const cells = board();
   const outputCount = groupSize === 5 ? 2 : 1;
   matches.forEach(cellIndex => { cells[cellIndex] = null; });
@@ -1163,7 +1202,7 @@ function mergeSelectedGroup(index, groupSize) {
   if (outputCount === 2) cells[matches[1]] = { fam:cell.fam, tier:cell.tier + 1 };
   recordMerge(cell.fam, cell.tier, groupSize, outputCount - 1);
   playPop();
-  showFloat(groupSize === 5 ? 'Five merge · 2 higher-tier items!' : 'Three merge · higher-tier item!');
+  showFloat(groupSize === 5 ? `Five merge · 2 higher-tier items · −${MERGE_ENERGY_COST}⚡` : `Three merge · higher-tier item · −${MERGE_ENERGY_COST}⚡`);
   selectedIndex = matches[0];
   render(matches[0]);
 }
@@ -1236,6 +1275,7 @@ function itemArtMarkup(familyId, tier, className = 'cell-icon') {
 }
 
 function describeItem(cell) {
+  if (cell.cache === 'energy') return 'Hidden energy stash under straw · tap to collect bonus ⚡; it stays if your energy is full.';
   if (cell.gen) {
     const seconds = generatorTimeLeft(cell);
     const definition = generatorDefinition(cell.gen);
@@ -1293,6 +1333,26 @@ window.addEventListener('pointerup', event => {
   handleTap(currentDrag.from);
 });
 
+function collectEnergyCache(index) {
+  const cache = board()[index];
+  if (cache?.cache !== 'energy') return;
+  if (state.energy >= maxEnergy()) {
+    feedbackMessage = 'Your energy is full. Leave this hidden stash here and collect it after spending some ⚡.';
+    render();
+    return;
+  }
+  const energyBefore = state.energy;
+  grantEnergy(Number(cache.amount) || 8);
+  const gained = state.energy - energyBefore;
+  board()[index] = null;
+  selectedIndex = -1;
+  placePendingGenerators();
+  feedbackMessage = `Hidden energy stash collected: +${gained}⚡.`;
+  showFloat(`+${gained}⚡ hidden stash!`);
+  playPop();
+  render();
+}
+
 function handleTap(index) {
   if (tutorialStep !== null) {
     const allowed = tutorialStep === 0
@@ -1305,6 +1365,10 @@ function handleTap(index) {
     }
   }
   const item = board()[index];
+  if (item?.cache === 'energy') {
+    collectEnergyCache(index);
+    return;
+  }
   if (selectedIndex === index && item && !item.gen) {
     showItemDetails(index);
     return;
@@ -1320,13 +1384,15 @@ function handleTap(index) {
     if (moveOrMerge(from, index)) return;
   }
   if (item?.gen) {
-    selectedIndex = -1;
+    selectedIndex = index;
     tapGenerator(index);
     return;
   }
   selectedIndex = item ? index : -1;
+  feedbackMessage = item
+    ? describeItem(item)
+    : 'Empty board space · tap a generator to create an item here.';
   render();
-  if (item) feedbackMessage = describeItem(item);
 }
 
 function showFloat(text) {
@@ -1486,14 +1552,14 @@ function showDialogue(chapter, onClose = () => {}) {
 }
 
 function showEventHelp() {
-  showModal(`<div class="sheet-heading"><div><div class="story-kicker">OPTIONAL SIDE CHALLENGE</div><h2>Seaside picnic board</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><p>This is a bonus board, not the next story chapter. Tap the picnic generator to spend 1 shared ⚡, merge matching seaside bites, and collect event points. Reach a milestone and tap <b>Claim</b> for its coins, energy, or occasional story ⭐.</p><p>Picnic rewards are one-time milestones; the main campaign moves forward through townsfolk requests and harbor repairs on the Town board. There is no event timer and nothing to lose if you ignore the picnic.</p><button class="btn primary event-return">Got it</button>`, modal => {
+  showModal(`<div class="sheet-heading"><div><div class="story-kicker">OPTIONAL SIDE CHALLENGE</div><h2>Seaside picnic board</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><p>This is a bonus board, not the next story chapter. Tap the picnic generator to spend 1 shared ⚡; each merge also costs 1⚡. Merge matching seaside bites and collect event points. Reach a milestone and tap <b>Claim</b> for its coins, energy, or occasional story ⭐.</p><p>Picnic rewards are one-time milestones; the main campaign moves forward through townsfolk requests and harbor repairs on the Town board. There is no event timer and nothing to lose if you ignore the picnic.</p><button class="btn primary event-return">Got it</button>`, modal => {
     modal.querySelector('.close-sheet').onclick = () => modal.remove();
     modal.querySelector('.event-return').onclick = () => modal.remove();
   });
 }
 
 function showGuide() {
-  showModal(`<div class="sheet-heading"><div><div class="story-kicker">YOUR HARBOR, YOUR PACE</div><h2>How to play</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="guide-section"><b>1 · Make and merge</b><p>Tap a generator to spend 1⚡. Merge two matching items to build the goods needed for a request. Drag a match together, or tap one item and then its match. Tap the selected item again to open details, storage and larger-merge options. Matching pairs glow after a short pause.</p></div><div class="guide-section"><b>2 · Help neighbors and rebuild</b><p>Tap the green <b>SERVE</b> button on a ready neighbor card to deliver immediately, including requests for multiple items. Tap the card itself to review the merge chain and rewards. Deliver requests for coins and ⭐. Tap <b>Repairs</b> at the bottom to go straight to the next worksite in the story. Only the current repair is available; its cost and any shortage are shown before you begin. Finish it to reveal the next story-led improvement. The <b>Story journal &amp; repairs</b> option in <b>More</b> tracks chores, chapters and repair progress, and lets you revisit locations you have already restored. Open <b>More</b>, then choose <b>Inventory</b> to store or retrieve items. Daily goals and other harbor options are also in <b>More</b>.</p></div><div class="guide-section"><b>3 · Finish the campaign, then free play</b><p>Find all ${CHAPTERS.length} chapters <em>and</em> complete all ${totalRestorationCount()} harbor improvements to unlock the epilogue. After that, keep merging on either board at your own pace.</p></div><div class="guide-section guide-calm"><b>No fail state</b><p>No lives, countdown, or losing screen. Energy refills over time; you can pause and come back whenever you like. Your progress is saved on this device.</p></div><div class="guide-actions"><button class="btn primary replay-guide">Replay the first-time guide</button><button class="btn fresh-save">Start a new harbor…</button></div>`, modal => {
+  showModal(`<div class="sheet-heading"><div><div class="story-kicker">YOUR HARBOR, YOUR PACE</div><h2>How to play</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><div class="guide-section"><b>1 · Make and merge</b><p>Tap a generator to spend 1⚡. Every merge action costs 1⚡ too, including three- and five-item merges. Drag two matching items together, or tap one item and then its match, to build the goods needed for a request. Tap the selected item again to open details, storage and larger-merge options. Matching pairs glow after a short pause. Energy refills over time; requests, daily gifts, level-ups and hidden energy stashes can restore it. On the Town board, tap a straw-covered blue ⚡ stash to collect its energy. If you are full, it stays on the board until you have room.</p></div><div class="guide-section"><b>2 · Help neighbors and rebuild</b><p>Tap the green <b>SERVE</b> button on a ready neighbor card to deliver immediately, including requests for multiple items. Tap the card itself to review the merge chain and rewards. Deliver requests for coins and ⭐. Tap <b>Repairs</b> at the bottom to go straight to the next worksite in the story. Only the current repair is available; its cost and any shortage are shown before you begin. Finish it to reveal the next story-led improvement. The <b>Story journal &amp; repairs</b> option in <b>More</b> tracks chores, chapters and repair progress, and lets you revisit locations you have already restored. Open <b>More</b>, then choose <b>Inventory</b> to store or retrieve items. Daily goals and other harbor options are also in <b>More</b>.</p></div><div class="guide-section"><b>3 · Finish the campaign, then free play</b><p>Find all ${CHAPTERS.length} chapters <em>and</em> complete all ${totalRestorationCount()} harbor improvements to unlock the epilogue. After that, keep merging on either board at your own pace.</p></div><div class="guide-section guide-calm"><b>No fail state</b><p>No lives, countdown, or losing screen. Energy refills over time, and you can find extra ⚡ in straw-covered stashes on the Town board—tap a stash to collect it. A full energy bar will not waste a stash; it stays on the board until you have room. Pause and come back whenever you like. Your progress is saved on this device.</p></div><div class="guide-actions"><button class="btn primary replay-guide">Replay the first-time guide</button><button class="btn fresh-save">Start a new harbor…</button></div>`, modal => {
     modal.querySelector('.close-sheet').onclick = () => modal.remove();
     modal.querySelector('.replay-guide').onclick = () => {
       modal.remove();
@@ -1877,11 +1943,11 @@ function refreshTutorial() {
   const content = tutorialStep === 0
     ? { title: 'Make your first treat', text: `Tap the highlighted ${FAMILIES[generatorFamily]?.icon || 'bakery'} to spend 1⚡ and make a fresh item.`, action: 'Your turn ✨' }
     : tutorialStep === 1 && noPair
-      ? { title: 'Merge matching treats', text: 'Drag one treat onto an identical one, or tap each in turn. Matching treats become a higher-tier item.', action: 'Continue ›' }
+      ? { title: 'Merge matching treats', text: 'Drag one treat onto an identical one, or tap each in turn. Each merge action costs 1⚡; matching treats become a higher-tier item.', action: 'Continue ›' }
       : tutorialStep === 1
-        ? { title: 'Merge matching treats', text: `Drag one highlighted ${mergeItem} onto its match. You can also tap the pair one after the other.`, action: 'Your turn ✨' }
+        ? { title: 'Merge matching treats', text: `Drag one highlighted ${mergeItem} onto its match. You can also tap the pair one after the other. Each merge action costs 1⚡.`, action: 'Your turn ✨' }
         : tutorialStep === 2
-          ? { title: 'Uncover a straw-covered treat', text: hasWebbedTreat ? 'Some treats are tucked beneath bundles of straw. Merge an uncovered match into the covered treat to sweep the straw aside and reveal its upgraded surprise.' : 'Some treats are hidden under straw. Match an uncovered treat into one to uncover and upgrade it.', action: 'Got it ›' }
+          ? { title: 'Uncover a straw-covered treat', text: hasWebbedTreat ? 'Some treats are tucked beneath straw bundles. Merge an uncovered match into a covered treat to uncover its upgrade. A blue ⚡ stash under straw is different: after the guide, tap it to collect the hidden energy.' : 'Some treats hide under straw; merge an uncovered match into one to reveal its upgrade. After the guide, tap a blue ⚡ stash to collect hidden energy.', action: 'Got it ›' }
           : { title: 'Help the townsfolk', text: 'Tap a ready request’s green SERVE button to deliver it right away. Tap the neighbor card itself to review the item chain and rewards. Deliver treats for coins and stars; tougher requests sometimes return a little energy too.', action: 'Your turn ✨' };
   const stepNumber = tutorialStep + 1;
   const showContinue = noPair || tutorialStep === 2;
@@ -2474,7 +2540,10 @@ function renderTasks() {
 function renderCell(cell, index, popIndex) {
   const classes = ['cell'];
   let content = '';
-  if (cell?.gen) {
+  if (cell?.cache === 'energy') {
+    classes.push('energy-cache', 'covered');
+    content = '<span class="cell-icon energy-cache-icon" aria-hidden="true">⚡</span><span class="cache-glint" aria-hidden="true">✦</span><span class="webbing" aria-hidden="true"></span>';
+  } else if (cell?.gen) {
     classes.push('gen', `gen-${cell.gen}`);
     const seconds = generatorTimeLeft(cell);
     if (seconds) classes.push('cd');
@@ -2509,21 +2578,36 @@ function render() {
   const selectedCell = selectedIndex >= 0 ? cells[selectedIndex] : null;
   const selectedItem = selectedCell && !selectedCell.gen ? FAMILIES[selectedCell.fam]?.tiers[selectedCell.tier - 1] : null;
   const selectedGenerator = selectedCell?.gen ? generatorDefinition(selectedCell.gen) : null;
-  const footerTitle = selectedItem ? `${selectedItem.name} · Tier ${selectedCell.tier}` : selectedGenerator ? `${selectedGenerator.name} · Lv ${generatorLevel(selectedCell.gen)}` : currentBoardKey === 'event' ? 'Seaside picnic' : 'Harbor board';
+  const footerTitle = selectedItem
+    ? `${selectedItem.name} · Tier ${selectedCell.tier}`
+    : selectedGenerator
+      ? `${selectedGenerator.name} · Lv ${generatorLevel(selectedCell.gen)}`
+      : currentBoardKey === 'event' ? 'Seaside picnic' : 'Harbor board';
+  const generatorCost = selectedGenerator ? generatorDefinition(selectedCell.gen).energyCost || 1 : 1;
+  const generatorCooldown = selectedGenerator ? generatorTimeLeft(selectedCell) : 0;
+  const generatorItemName = selectedGenerator ? FAMILIES[selectedCell.gen]?.tiers[0]?.name || 'an item' : '';
   const footerDescription = selectedItem
-    ? selectedCell.tier < (FAMILIES[selectedCell.fam]?.tiers.length || 8) ? 'Tap again for details · merge a match.' : 'Top tier · tap again for details.'
-    : selectedGenerator ? 'Tap to make an item with 1⚡.' : feedbackMessage;
+    ? `${selectedCell.covered ? 'Covered bundle · merge a matching item to uncover it. ' : ''}${selectedItem.description}${selectedCell.locked ? ' Locked · open details to unlock.' : selectedCell.tier < (FAMILIES[selectedCell.fam]?.tiers.length || 8) ? ' Merge a match to make the next tier.' : ' This is the top tier.'}`
+    : selectedGenerator
+      ? generatorCooldown
+        ? `Recharging · ready in ${generatorCooldown}s.`
+        : state.energy < generatorCost
+          ? `Need ${generatorCost}⚡ to make ${generatorItemName}. Orders restore energy.`
+          : nearestEmpty(selectedIndex) < 0
+            ? 'Board is full · merge, store or deliver an item to make room.'
+            : `Tap to make ${generatorItemName} · costs ${generatorCost}⚡ · ${selectedCell.charges}/${generatorCapacity(selectedCell.gen)} drops left.`
+      : currentBoardKey === 'event' ? 'Merge seaside bites for optional picnic rewards.' : feedbackMessage;
+  const showDefaultFooterHint = !selectedItem && !selectedGenerator && currentBoardKey === 'main' && feedbackMessage === defaultBoardHint;
   container.innerHTML = `<div class="app">
     <header class="topline">
       <div class="profile-badge" aria-label="${chapterBadgeLabel}" title="${chapterBadgeLabel}"><img src="${CHARS.iris.img}" alt=""><b>${chapterBadge}</b></div>
-      <div class="resource-pills"><div class="resource-pill energy-pill" title="Energy regenerates over time · ${maxEnergy()} maximum"><span>⚡</span><b>${state.energy}/${maxEnergy()}</b></div><div class="resource-pill coin-pill" data-resource="coins" title="Coins fund harbor improvements"><span>🪙</span><b>${state.coins}</b></div><div class="resource-pill star-pill" data-resource="stars" title="Stars reveal story chapters and track restoration"><span>⭐</span><b>${state.stars}</b></div></div>
-      <div class="top-actions"><button class="btn more-button" id="more-nav" aria-label="More harbor options" title="More harbor options">☰</button><button class="btn sound-button" id="mute" aria-label="Toggle sound">${muted ? '🔇' : '🔊'}</button></div>
+      <div class="resource-pills"><div class="resource-pill energy-pill" title="Energy regenerates over time · ${maxEnergy()} maximum"><img class="currency-icon" src="assets/harbor-energy-bolt.webp" alt=""><b>${state.energy}/${maxEnergy()}</b></div><div class="resource-pill coin-pill" data-resource="coins" title="Coins fund harbor improvements"><img class="currency-icon" src="assets/harbor-gold-coin.webp" alt=""><b>${state.coins}</b></div><div class="resource-pill star-pill" data-resource="stars" title="Stars reveal story chapters and track restoration"><span aria-hidden="true">⭐</span><b>${state.stars}</b></div><div class="resource-pill gem-pill" data-resource="pearls" title="Pearls are saved for special harbor supplies"><img class="currency-icon" src="assets/harbor-pink-gem.webp" alt=""><b>${state.pearls}</b></div></div>
+      <div class="top-actions"><button class="btn more-button" id="more-nav" aria-label="Open harbor menu" title="Harbor menu"><svg class="cart-icon" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 5h4l3 15h15l4-11H9"/><path d="M11 20l-1 4h16"/><circle cx="13" cy="28" r="2"/><circle cx="24" cy="28" r="2"/></svg></button><button class="btn sound-button" id="mute" aria-label="Toggle sound">${muted ? '🔇' : '🔊'}</button></div>
     </header>
     <button class="story-objective ${storyMoment ? 'story-objective-ready' : ''}" id="story-focus" type="button" aria-label="${storyMoment ? 'Read a neighbor story' : 'Open the story journal'}"><span class="story-objective-icon" aria-hidden="true">${storyMoment ? '✉️' : '📖'}</span><span class="story-objective-copy"><small>CHAPTER ${storyContext.chapterIndex + 1} · ${storyContext.chapter.title}</small><b>${storyMoment ? 'A neighbor’s story is ready' : storyObjectiveTitle}</b><i class="story-objective-track"><i style="width:${choreTrackPercent}%"></i></i></span><span class="story-objective-chevron" aria-hidden="true">›</span></button>
     <section class="orders-section ${currentBoardKey === 'main' ? 'neighbor-section' : 'event-section'}"><div class="section-heading"><b>${currentBoardKey === 'event' ? 'PICNIC REWARDS' : 'NEIGHBOR REQUESTS'}</b></div><div class="tasks ${currentBoardKey === 'event' ? 'event-tasks' : 'neighbor-rail'}" ${currentBoardKey === 'main' ? `role="region" tabindex="0" aria-label="Neighbor requests. Scroll horizontally to browse all ${Object.keys(CHARS).length} neighbors."` : ''}>${renderTasks()}</div></section>
     <div class="board ${currentBoardKey === 'event' ? 'event' : ''}" role="grid" aria-label="${currentBoardKey === 'main' ? 'Harbor town' : 'Seaside picnic'} merge board, ${BOARD_COLS} columns by ${BOARD_ROWS} rows">${cells.map((cell, index) => renderCell(cell, index, -1)).join('')}</div>
-    <div class="board-footer"><div class="info item-info" aria-live="polite"><div class="item-info-copy"><b class="item-info-title">${footerTitle}</b><small class="item-info-description">${footerDescription}</small></div></div></div>
-    <nav class="nav" aria-label="Main navigation"><button class="btn nav-repairs" id="repairs-nav" type="button" aria-label="Open harbor repairs" title="Restore the harbor">🛠️ <span>Repairs</span></button></nav>
+    <div class="board-footer"><button class="footer-storage" id="storage-nav" type="button" aria-label="Open inventory" title="Open inventory"><img src="assets/harbor-storage-button.webp" alt=""></button><div class="info item-info" role="status" aria-live="polite" aria-label="${footerTitle}. ${footerDescription}"><div class="item-info-copy"><b class="item-info-title">${showDefaultFooterHint ? 'Tap an item' : footerTitle}</b><small class="item-info-description">${showDefaultFooterHint ? 'to view its details.' : footerDescription}</small></div></div><button class="footer-repairs" id="repairs-nav" type="button" aria-label="Open harbor repairs" title="Restore the harbor"><span aria-hidden="true">🛠️</span><b>Repair</b></button></div>
   </div>`;
   const milestones = container.querySelector('.event-milestones');
   if (milestones) milestones.scrollLeft = eventScroll;
@@ -2561,6 +2645,7 @@ function render() {
     render();
   };
   container.querySelector('#repairs-nav').onclick = () => openNextRestoration();
+  container.querySelector('#storage-nav').onclick = () => showCollection('inventory');
   container.querySelector('#story-focus').onclick = () => storyMoment ? openStoryExperience() : showStory();
   container.querySelector('#more-nav').onclick = showMoreMenu;
   saveState();
