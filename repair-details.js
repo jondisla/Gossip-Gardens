@@ -101,6 +101,78 @@ const REPAIR_DETAILS = {
   ]
 };
 
+// Zone ownership and room/area metadata are authored per repair step. The
+// plate chain is the source of visual truth; no repair feature is composited
+// over a plate at runtime.
+const STEP_ZONES = {
+  cafe: [
+    {zone:'indoor',room:'dining room'}, {zone:'indoor',room:'dining room'},
+    {zone:'indoor',room:'dining room'}, {zone:'indoor',room:'dining room'},
+    {zone:'indoor',room:'front entry'}, {zone:'indoor',room:'kitchen'},
+    {zone:'outdoor',area:'café deck'}, {zone:'outdoor',area:'café deck'}
+  ],
+  pier: Array.from({length:8}, () => ({zone:'outdoor',area:'pier dock'})),
+  garden: Array.from({length:8}, () => ({zone:'outdoor',area:'garden yard'})),
+  office: Array.from({length:8}, () => ({zone:'indoor',room:'Gazette newsroom'})),
+  market: Array.from({length:8}, () => ({zone:'outdoor',area:'market square'})),
+  lighthouse: [
+    {zone:'indoor',room:'storehouse'}, {zone:'indoor',room:'stairwell'},
+    {zone:'indoor',room:'keeper room'}, {zone:'indoor',room:'lantern room'},
+    {zone:'indoor',room:'lantern room'}, {zone:'indoor',room:'lantern room'},
+    {zone:'indoor',room:'record nook'}, {zone:'indoor',room:'lantern room'}
+  ],
+  workshop: Array.from({length:8}, () => ({zone:'indoor',room:'workshop'})),
+  archive: Array.from({length:8}, () => ({zone:'indoor',room:'archive room'})),
+  wharf: Array.from({length:8}, () => ({zone:'outdoor',area:'old wharf landing'})),
+  festival: Array.from({length:8}, () => ({zone:'outdoor',area:'festival plaza'}))
+};
+const PLATE_CATALOG = {
+  cafeRoom:{zone:'indoor',chain:Array.from({length:6},(_,index)=>`assets/restore-cafe-room-${index}.webp`)},
+  cafeKitchen:{zone:'indoor',before:'assets/restore-cafe-kitchen-before.webp',after:'assets/restore-cafe-kitchen-after.webp'},
+  cafeDeck:{zone:'outdoor',before:'assets/restore-cafe-deck-0.webp',after:'assets/restore-cafe-7.webp'},
+  cafeBell:{zone:'outdoor',before:'assets/restore-cafe-7.webp',after:'assets/restore-cafe-deck-8.webp'},
+  garden:{zone:'outdoor',chain:Array.from({length:9},(_,index)=>`assets/restore-garden-${index}.webp`)},
+  pier:{zone:'outdoor',chain:Array.from({length:9},(_,index)=>`assets/restore-pier-${index}.webp`)},
+  office:{zone:'indoor',before:'assets/gazette-worksite-portrait.webp',after:'assets/gazette-worksite-portrait.webp'},
+  market:{zone:'outdoor',before:'assets/restore-market-square.webp',after:'assets/restore-market-square.webp'},
+  lighthouse:{zone:'indoor',before:'assets/lighthouse-isometric-worksite.webp',after:'assets/lighthouse-isometric-worksite.webp'},
+  workshop:{zone:'indoor',before:'assets/workshop-worksite-portrait.webp',after:'assets/workshop-worksite-portrait.webp'},
+  archive:{zone:'indoor',before:'assets/archive-worksite-portrait.webp',after:'assets/archive-worksite-portrait.webp'},
+  wharf:{zone:'outdoor',before:'assets/restore-old-wharf.webp',after:'assets/restore-old-wharf.webp'},
+  festival:{zone:'outdoor',before:'assets/restore-festival-plaza.webp',after:'assets/restore-festival-plaza.webp'}
+};
+function assignStepZonesAndPlates() {
+  Object.entries(REPAIR_DETAILS).forEach(([locationId, steps]) => steps.forEach((step,index) => {
+    const level = index + 1;
+    const zoneData = STEP_ZONES[locationId]?.[index];
+    let plate;
+    if (locationId === 'garden' || locationId === 'pier') {
+      const chain = PLATE_CATALOG[locationId].chain;
+      plate = {zone:PLATE_CATALOG[locationId].zone,before:chain[index],after:chain[index + 1]};
+    } else if (locationId === 'cafe' && level === 8) {
+      plate = PLATE_CATALOG.cafeBell;
+    } else if (locationId === 'cafe' && level === 7) {
+      plate = PLATE_CATALOG.cafeDeck;
+    } else if (locationId === 'cafe' && level === 6) {
+      plate = PLATE_CATALOG.cafeKitchen;
+    } else if (locationId === 'cafe' && level <= 5) {
+      const chain = PLATE_CATALOG.cafeRoom.chain;
+      plate = {zone:PLATE_CATALOG.cafeRoom.zone,before:chain[index],after:chain[index + 1]};
+    } else if (locationId === 'cafe') {
+      plate = PLATE_CATALOG.cafeRoom;
+    } else {
+      plate = PLATE_CATALOG[locationId];
+    }
+    if (!zoneData || !plate) {
+      console.error(`[Harbor Whispers] Missing repair zone or plate: ${locationId}:${level}`);
+      return;
+    }
+    Object.assign(step, zoneData, {plateZone:plate.zone,plateBefore:plate.before,plateAfter:plate.after});
+    if (step.zone !== plate.zone) console.error(`[Harbor Whispers] Repair plate zone mismatch at ${locationId}:${level}: ${step.zone} step uses ${plate.zone} plate`);
+  }));
+}
+assignStepZonesAndPlates();
+
 function architecturalDrawing(mode, installed) {
   const backdrop = '<rect width="160" height="102" rx="12" fill="#e7f1ed"/><rect y="70" width="160" height="32" fill="#c89863"/><path d="M0 81h160M0 92h160" stroke="#ab7950" stroke-width="2" opacity=".55"/><path d="M20 70V25h120v45" fill="#f4dfb8" stroke="#80634c" stroke-width="3" stroke-linejoin="round"/>';
   if (mode === 'door') {
@@ -223,6 +295,12 @@ export function repairDetailState(locationId, level) {
     afterState:spec.after,
     repairItem:spec.item,
     mode:spec.mode,
+    zone:spec.zone,
+    room:spec.room || '',
+    area:spec.area || '',
+    plateZone:spec.plateZone,
+    plateBefore:spec.plateBefore,
+    plateAfter:spec.plateAfter,
     tool:repairTool(spec),
     action:repairAction(spec),
     x:anchor?.x ?? 384,
@@ -310,7 +388,9 @@ function objectDrawing(spec, locationId, installed, designId = '') {
   }
   if (mode === 'shelves') {
     const books = '<path d="M55 42h18v30H55Zm25-5h14v35H80Zm20 8h18v27h-18Zm30-3h15v30h-15Zm22 5h19v25h-19Zm-93 44h18v25H59Zm24-4h15v29H83Zm23 5h18v24h-18Zm26-5h19v29h-19Zm28 7h19v22h-19Z" fill="#e6c88d" stroke="#8a6644" stroke-width="3"/>';
-    return `${shadow}${installed ? '<path d="M43 29v112m177-112v112M37 42h190M37 83h190M37 125h190" fill="none" stroke="#80583a" stroke-width="9" stroke-linecap="round"/>'+books : '<path d="M42 30v110m180-110v110" stroke="#a58362" stroke-width="6" stroke-dasharray="9 9"/><path d="M39 82h187" stroke="#c7ae8b" stroke-width="4" stroke-dasharray="8 8"/>'}`;
+    const frame = '<path d="M43 29v112m177-112v112M37 42h190M37 83h190M37 125h190" fill="none" stroke="#80583a" stroke-width="9" stroke-linecap="round"/>';
+    if (locationId === 'office') return `${shadow}${frame}${installed ? books : '<path d="M47 38h172m-172 40h172m-172 41h172" stroke="#e1c391" stroke-width="3" opacity=".8"/>'}`;
+    return `${shadow}${installed ? frame + books : '<path d="M42 30v110m180-110v110" stroke="#a58362" stroke-width="6" stroke-dasharray="9 9"/><path d="M39 82h187" stroke="#c7ae8b" stroke-width="4" stroke-dasharray="8 8"/>'}`;
   }
   if (mode === 'mural') {
     return `${shadow}<rect x="29" y="22" width="202" height="117" rx="5" fill="${installed?'#f5e8c7':'#e8d6b8'}" stroke="#745b46" stroke-width="7"/>${installed ? '<path d="M39 96q47-40 93 0t88 0v34H39Z" fill="#6db5bb"/><path d="m50 95 37-37 32 37m23-1 32-34 35 35" fill="#85a768"/><circle cx="178" cy="52" r="15" fill="#efbf55"/><path d="M51 46h38" stroke="#e88991" stroke-width="8" stroke-linecap="round"/>' : '<path d="M48 43h94m-94 18h145m-145 18h79" stroke="#d8c7aa" stroke-width="4" stroke-dasharray="7 8"/>'}`;
@@ -351,30 +431,31 @@ function patioFurnitureMarkup(styleId) {
 }
 
 const SCENE_LAYOUTS = {
-  // Positions match the actual object centers in each 1024 × 768 scene,
-  // including the strong diagonal perspective of the pier and wharf artwork.
-  garden: [[380,475,300,170],[100,465,300,230],[660,440,300,230],[700,35,270,350],[370,300,290,250],[170,535,690,150],[665,400,260,200],[70,430,360,245]],
-  pier: [[340,520,470,230],[500,420,300,190],[420,300,180,220],[700,245,190,180],[600,500,340,210],[100,375,350,250],[700,330,250,230],[400,510,480,230]],
-  wharf: [[340,520,470,230],[500,420,300,190],[420,300,180,220],[700,245,190,180],[600,500,340,210],[100,375,350,250],[700,330,250,230],[400,510,480,230]],
-  office: [[370,475,300,190],[390,230,260,230],[665,235,240,310],[565,425,220,180],[380,450,300,200],[420,480,260,180],[680,290,230,250],[390,405,280,210]],
-  archive: [[370,475,300,190],[665,400,240,180],[170,410,250,250],[330,390,260,180],[390,455,300,210],[680,290,230,220],[665,400,240,250],[390,445,300,200]],
-  market: [[340,540,360,180],[180,410,280,220],[600,270,250,210],[300,520,430,190],[310,260,400,250],[650,440,280,230],[320,410,370,230],[300,195,430,180]],
-  festival: [[340,540,360,180],[180,410,280,220],[600,270,250,210],[300,520,430,190],[310,260,400,250],[650,440,280,230],[320,410,370,230],[300,195,430,180]],
-  lighthouse: [[400,520,280,190],[350,420,320,220],[630,190,200,250],[420,285,210,220],[440,300,220,210],[410,275,240,220],[210,350,250,230],[440,220,230,250]]
+  // Artwork-space anchors are calibrated to each location's 576 × 1024 portrait worksite.
+  // Anchors use virtual 576 × 1024 artwork coordinates and correspond to the
+  // baked repair surfaces in the outdoor plate chains.
+  // The first target sits on the upper empty soil bed, not over the center path.
+  garden: [[188,168,190,170],[135,206,190,120],[93,339,160,120],[216,89,190,190],[267,309,180,180],[66,457,190,130],[417,198,110,115],[303,457,200,150]],
+  pier: [[189,652,220,130],[273,785,260,110],[411,447,100,170],[106,431,100,100],[185,734,230,150],[33,423,510,300],[305,197,220,200],[220,119,240,130]],
+  wharf: [[150,780,250,150],[330,600,180,130],[200,650,185,190],[270,440,200,200],[120,330,180,260],[380,450,100,200],[365,500,150,180],[175,550,230,170]],
+  office: [[190,640,220,150],[105,310,175,185],[380,335,190,225],[320,530,160,120],[180,650,220,145],[300,690,230,135],[400,410,160,220],[220,580,190,165]],
+  archive: [[10,700,200,250],[20,445,170,235],[245,320,170,240],[240,590,250,120],[340,580,210,170],[10,350,140,240],[370,300,180,250],[200,650,180,140]],
+  market: [[170,700,230,140],[60,420,180,170],[375,260,180,130],[155,580,270,95],[300,330,190,150],[390,650,150,175],[48,570,170,170],[170,245,235,100]],
+  festival: [[170,700,230,140],[250,250,150,250],[80,690,180,120],[320,370,160,190],[300,275,235,190],[60,550,180,170],[180,500,240,150],[190,220,240,140]],
+  lighthouse: [[180,750,240,150],[80,460,140,290],[190,310,110,150],[196,170,170,150],[200,150,170,100],[200,175,170,150],[360,400,170,180],[210,130,160,180]],
+  workshop: [[170,590,245,170],[370,450,160,190],[190,620,210,120],[200,100,220,180],[410,350,145,235],[310,620,220,165],[355,320,190,165],[400,250,150,95]]
 };
 
 const CAFE_ANCHORS = {
-  // Every target is in source-art coordinates; the scene camera follows these
-  // points so the active repair stays on screen on narrow portrait devices.
-  1: { x:360, y:566, width:300, height:130, layer:'damaged', zIndex:20, renderedByScene:true },
-  2: { x:340, y:72, width:360, height:210, layer:'architecture', zIndex:30, renderedByScene:true },
-  3: { x:248, y:285, width:230, height:225, layer:'architecture', zIndex:32, renderedByScene:true },
-  4: { x:260, y:432, width:500, height:250, layer:'restored', zIndex:35, renderedByScene:true },
-  5: { x:390, y:390, width:250, height:280, layer:'architecture', zIndex:34, renderedByScene:true },
-  6: { x:280, y:335, width:470, height:285, layer:'restored', zIndex:35, renderedByScene:true },
-  7: { x:190, y:492, width:640, height:235, layer:'decorations', zIndex:45, renderedByScene:true },
-  // Small brass fitting above the café's centered front doorway.
-  8: { x:480, y:343, width:110, height:80, layer:'decorations', zIndex:46, animationAnchor:'bell' }
+  // Normalized points on each location-specific plate; markers share the image's own art plane.
+  1: { x:234, y:723, width:108, height:128, layer:'damaged', zIndex:20, renderedByScene:true },
+  2: { x:234, y:76, width:108, height:164, layer:'architecture', zIndex:30, renderedByScene:true },
+  3: { x:298, y:327, width:142, height:184, layer:'architecture', zIndex:32, renderedByScene:true },
+  4: { x:213, y:634, width:150, height:144, layer:'restored', zIndex:35, renderedByScene:true },
+  5: { x:438, y:451, width:108, height:206, layer:'architecture', zIndex:34, renderedByScene:true },
+  6: { x:232, y:424, width:112, height:176, layer:'restored', zIndex:35, renderedByScene:true },
+  7: { x:232, y:457, width:112, height:145, layer:'decorations', zIndex:45, renderedByScene:true },
+  8: { x:429, y:191, width:68, height:72, layer:'decorations', zIndex:46, animationAnchor:'bell', renderedByScene:true }
 };
 
 function repairObjectId(locationId, level) {
@@ -407,6 +488,8 @@ export const RESTORATION_OBJECT_REGISTRY = Object.freeze(Object.fromEntries(
     const id = repairObjectId(locationId, level);
     return [id, Object.freeze({
       id, locationId, level, damagedImage:spec.before, restoredImage:spec.after,
+      zone:spec.zone, room:spec.room || '', area:spec.area || '',
+      plateZone:spec.plateZone, plateBefore:spec.plateBefore, plateAfter:spec.plateAfter,
       x:anchor.x, y:anchor.y, width:anchor.width, height:anchor.height,
       zIndex:anchor.zIndex, layer:anchor.layer,
       transform:anchor.transform || '', animationAnchor:anchor.animationAnchor || '',
@@ -431,7 +514,26 @@ function featureGroup(locationId, level, installed, styleId = '', isCurrent = fa
   const contents = isCurrent
     ? `<g class="repair-feature-before">${objectDrawing(spec, locationId, false, styleId)}</g><g class="repair-feature-after">${objectDrawing(spec, locationId, true, styleId)}</g>`
     : `<g class="repair-feature-built">${objectDrawing(spec, locationId, true, styleId)}</g>`;
-  return `<svg class="repair-scene-feature ${isCurrent ? 'repair-feature-current' : 'repair-feature-built'} ${isCurrent ? `feature-mode-${spec.mode}` : ''}" data-restoration-object="${id}" data-scene-layer="${anchor.layer}" x="${anchor.x}" y="${anchor.y}" width="${anchor.width}" height="${anchor.height}" viewBox="0 0 260 160" preserveAspectRatio="none" aria-label="${isCurrent ? spec.item : `Restored ${spec.item}`}">${contents}</svg>`;
+  return `<svg class="repair-scene-feature ${isCurrent ? 'repair-feature-current' : 'repair-feature-built'} ${isCurrent ? `feature-mode-${spec.mode}` : ''}" data-restoration-object="${id}" data-scene-layer="${anchor.layer}" x="${anchor.x}" y="${anchor.y}" width="${anchor.width}" height="${anchor.height}" viewBox="0 0 260 160" preserveAspectRatio="xMidYMid meet" aria-label="${isCurrent ? spec.item : `Restored ${spec.item}`}">${contents}</svg>`;
+}
+
+export function repairSceneFeaturesMarkup(locationId, completedLevel, activeLevel, phase = 'objective', activeStyleId = '', stylesByLevel = {}) {
+  // Café, pier and garden already use cumulative, location-specific before/after
+  // plates. The other worksites share a base plate, so draw their repaired
+  // objects in the same 576 × 1024 artwork coordinate system as that plate.
+  if (['cafe', 'pier', 'garden'].includes(locationId)) return '';
+  const repairs = REPAIR_DETAILS[locationId] || [];
+  const completed = Math.max(0, Math.min(repairs.length, Math.floor(Number(completedLevel) || 0)));
+  const features = [];
+  for (let level = 1; level <= completed; level += 1) {
+    features.push(featureGroup(locationId, level, true, stylesByLevel[level] || ''));
+  }
+  const active = Math.floor(Number(activeLevel) || 0);
+  if (active > completed && active <= repairs.length && phase !== 'complete') {
+    features.push(featureGroup(locationId, active, false, activeStyleId, true));
+  }
+  if (!features.some(Boolean)) return '';
+  return `<svg class="restoration-object-layer" viewBox="0 0 576 1024" preserveAspectRatio="none" aria-hidden="true">${features.join('')}</svg>`;
 }
 
 function repairWorkEffectMarkup(locationId, level, phase) {
@@ -455,31 +557,11 @@ function repairWorkEffectMarkup(locationId, level, phase) {
   </g>`;
 }
 
-export function repairEnvironmentMarkup(locationId, restoredThrough = 0, activeLevel = 0, activeCompleted = false, activeStyle = '', stylesByLevel = {}, phase = 'objective') {
-  const levels = Math.max(0, Math.min(8, Number(restoredThrough) || 0));
-  const active = Math.max(0, Math.min(8, Number(activeLevel) || 0));
-  const layers = { architecture:[], damaged:[], restored:[], decorations:[], effects:[] };
-  const addFeature = (level, styleId = '', isCurrent = false) => {
-    const id = repairObjectId(locationId, level);
-    const object = RESTORATION_OBJECT_REGISTRY[id];
-    if (!object) return;
-    if (object.renderedByScene && !(isCurrent && phase === 'work')) {
-      layers[object.layer].push(`<g data-restoration-object="${id}" data-scene-layer="${object.layer}" data-anchor="${object.x},${object.y},${object.width},${object.height}" aria-hidden="true"></g>`);
-      return;
-    }
-    const markup = featureGroup(locationId, level, isCurrent ? activeCompleted : true, styleId, isCurrent, isCurrent && phase === 'work');
-    if (markup) layers[object.layer].push(markup);
-  };
-  for (let level = 1; level <= levels; level += 1) addFeature(level, stylesByLevel[level] || '', false);
-  if (active && active <= 8 && REPAIR_DETAILS[locationId]?.[active - 1]) {
-    addFeature(active, activeStyle || stylesByLevel[active] || '', true);
-    const effect = repairWorkEffectMarkup(locationId, active, phase);
-    if (effect) layers.effects.push(effect);
-  }
-  const layerMarkup = Object.entries(layers).map(([layer,items]) =>
-    `<g class="restoration-layer-${layer}" data-scene-layer="${layer}">${items.join('')}</g>`
-  ).join('');
-  return `<svg class="restoration-object-layer" viewBox="0 0 1024 768" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">${layerMarkup}</svg>`;
+export function repairEnvironmentMarkup() {
+  // Repair progress is baked into the before/after environment plates. Keeping
+  // this compatibility export intentionally empty prevents procedural trees,
+  // flowerbeds, signs, icons or other features from drifting onto the wrong zone.
+  return '';
 }
 
 export function repairDesignArtMarkup(locationId, level, designId = '') {
