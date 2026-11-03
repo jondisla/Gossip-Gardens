@@ -1,6 +1,6 @@
 // Harbor Whispers — original harbor-town merge adventure. The save key is intentionally stable.
 import { FAMILIES, MAIN_FAMILIES, GENERATOR_DEFS, CHARS, REQUEST_NOTES, CHAPTER_EXPANSION, TASK_TEMPLATES, DAILY_OBJECTIVES, BOOSTERS } from './game-content.js';
-import { repairDetailState, repairDesignArtMarkup, repairSceneFeaturesMarkup } from './repair-details.js';
+import { repairDetailState, repairDesignArtMarkup } from './repair-details.js';
 import { restorationCastFor } from './scenes.js';
 const GEN_CHARGES = 12;
 const GEN_COOLDOWN_MS = 20_000;
@@ -357,6 +357,7 @@ function newState() {
     achievements: [], relationships: Object.fromEntries(Object.keys(CHARS).map(id => [id, 1])),
     eventPoints: 0, eventClaimed: [], dailyClaimedAt: '', dailyDay: today, dailyStreak: 0, dailyObjectives: makeDailyObjectives(today),
     storyChores: {}, storyMoments: [],
+    completionQueue: [], completionSequence: 0, completionMilestones: {},
     introSeen: false, tutorialSeen: false, tutorialStarted: false, tutorialStep: 0,
     victorySeen: false, lastTick: now, offlineEnergyGained: 0
   };
@@ -426,12 +427,34 @@ function grantXP(amount) {
   while (state.playerLevel < 50 && state.xp >= xpForNextLevel()) {
     state.xp -= xpForNextLevel();
     state.playerLevel += 1;
-    state.coins += 60 + state.playerLevel * 12;
+    const level = state.playerLevel;
+    const coinReward = 60 + level * 12;
+    const energyBefore = state.energy;
+    state.coins += coinReward;
     grantEnergy(12);
-    if (state.playerLevel % 3 === 0) state.pearls += 2;
-    if (state.playerLevel % 5 === 0) state.boosters.energyFlask = (state.boosters.energyFlask || 0) + 1;
-    if (state.playerLevel % 5 === 0) state.maxEnergy = Math.min(200, maxEnergy() + 5);
-    showFloat(`Level ${state.playerLevel}! +${60 + state.playerLevel * 12}🪙 +12⚡`);
+    const energyReward = state.energy - energyBefore;
+    const pearlReward = level % 3 === 0 ? 2 : 0;
+    if (pearlReward) state.pearls += pearlReward;
+    const boosterReward = level % 5 === 0 ? 1 : 0;
+    if (boosterReward) state.boosters.energyFlask = (state.boosters.energyFlask || 0) + boosterReward;
+    const maxEnergyReward = level % 5 === 0 ? 5 : 0;
+    if (maxEnergyReward) state.maxEnergy = Math.min(200, maxEnergy() + maxEnergyReward);
+    const unlockedBefore = [...state.unlockedFamilies];
+    unlockAvailableGenerators();
+    const newlyUnlocked = state.unlockedFamilies.filter(familyId => !unlockedBefore.includes(familyId));
+    enqueueCompletion({
+      kind:'level', priority:80, level, title:'Level Up!',
+      message:level >= 50 ? 'You have reached the harbor’s highest level. Keep playing at your own easy pace.' : 'A little more experience brings you closer to the next harbor milestone.',
+      rewards:[
+        {icon:'🪙',amount:coinReward,label:'coins'},
+        ...(energyReward ? [{icon:'⚡',amount:energyReward,label:'energy'}] : []),
+        ...(pearlReward ? [{icon:'💎',amount:pearlReward,label:'pearls'}] : []),
+        ...(boosterReward ? [{icon:'🧪',amount:boosterReward,label:'Energy Flask'}] : []),
+        ...(maxEnergyReward ? [{icon:'↗',amount:maxEnergyReward,label:'energy capacity'}] : [])
+      ],
+      newlyUnlocked:newlyUnlocked.map(familyId => GENERATOR_DEFS.find(entry => entry.family === familyId)?.name).filter(Boolean)
+    }, `level-${level}`);
+    showFloat(`Level ${level}! +${coinReward}🪙 +${energyReward}⚡`);
   }
   if (state.playerLevel >= 50) state.xp = Math.min(state.xp, xpForNextLevel(50) - 1);
   state.xpToNext = xpForNextLevel();
@@ -563,6 +586,9 @@ function loadState() {
     migrated.dailyObjectives = Array.isArray(saved.dailyObjectives) && migrated.dailyDay === dailyDateKey() ? saved.dailyObjectives.map(objective => ({...objective, progress:Math.max(0,Number(objective.progress)||0), claimed:Boolean(objective.claimed), reward:{...(objective.reward||{})}})) : makeDailyObjectives();
     migrated.storyChores = saved.storyChores && typeof saved.storyChores === 'object' && !Array.isArray(saved.storyChores) ? saved.storyChores : {};
     migrated.storyMoments = Array.isArray(saved.storyMoments) ? saved.storyMoments.filter(moment => moment && Array.isArray(moment.lines)).slice(-10) : [];
+    migrated.completionQueue = Array.isArray(saved.completionQueue) ? saved.completionQueue.filter(event => event && typeof event === 'object' && typeof event.kind === 'string' && typeof event.id === 'string').slice(0, 60) : [];
+    migrated.completionSequence = Math.max(0, Math.floor(Number(saved.completionSequence) || 0));
+    migrated.completionMilestones = saved.completionMilestones && typeof saved.completionMilestones === 'object' && !Array.isArray(saved.completionMilestones) ? saved.completionMilestones : {};
     migrated.dailyStreak = Math.max(0, Number(saved.dailyStreak) || 0);
     migrated.eventClaimed = Array.isArray(saved.eventClaimed) ? saved.eventClaimed : [];
     migrated.cafeFloor = CAFE_FLOORS.some(floor => floor.id === saved.cafeFloor) ? saved.cafeFloor : fresh.cafeFloor;
@@ -688,8 +714,43 @@ function recordStoryAction(kind, amount = 1, persist = true) {
   if (track.progress >= context.chore.target) {
     track.step = Math.min(STORY_CHORE_STEPS.length, context.stepIndex + 1);
     track.progress = 0;
+    const choreXP = 15;
+    grantXP(choreXP);
+    const chapterLocation = LOCATIONS.find(entry => entry.id === CHAPTER_LOCATION_IDS[context.chapterIndex]) || LOCATIONS[0];
+    enqueueCompletion({
+      kind:'chore', priority:40, title:'Task Completed!', taskName:context.chore.title,
+      character:context.chore.character, icon:chapterLocation.icon,
+      message:'One more helpful promise kept. The harbor story moves forward.',
+      progress:`${track.step} / ${STORY_CHORE_STEPS.length} story tasks`,
+      rewards:[{icon:'✦',amount:choreXP,label:'XP'}]
+    });
     feedbackMessage = `Story chore complete: ${context.chore.title}. The harbor day moves on.`;
     showFloat('CHORE COMPLETE!');
+    if (track.step >= STORY_CHORE_STEPS.length) {
+      const nextChapterReady = context.chapterIndex + 1 < state.chapter;
+      const storyFinished = context.chapterIndex + 1 >= CHAPTERS.length && state.chapter >= CHAPTERS.length;
+      const nextMessage = nextChapterReady
+        ? `“${CHAPTERS[context.chapterIndex + 1].title}” is already ready in the journal.`
+        : state.chapter < CHAPTERS.length
+          ? 'Keep helping neighbors and collecting stars to reveal the next chapter.'
+          : 'The harbor story has reached its final chapter. Your boards remain open for relaxed play.';
+      enqueueCompletion({
+        kind:'story-day', priority:50, title:'Story Day Completed!',
+        chapterTitle:context.chapter.title, art:storyArtwork(context.chapter),
+        progress:`${STORY_CHORE_STEPS.length} / ${STORY_CHORE_STEPS.length} story tasks`,
+        message:nextMessage, nextChapterReady,
+        rewards:[]
+      }, `story-day-${context.chapterIndex}`);
+      if (storyFinished) {
+        enqueueCompletion({
+          kind:'caught-up', priority:70, title:'You’re All Caught Up!',
+          chapterTitle:context.chapter.title, art:storyArtwork(context.chapter),
+          progress:`${CHAPTERS.length} / ${CHAPTERS.length} chapters · all story tasks complete`,
+          message:'You have reached the end of the available harbor story. The merge boards and repairs are still here for cozy free play.',
+          rewards:[]
+        }, 'story-caught-up');
+      }
+    }
   }
   if (persist) saveState();
 }
@@ -733,6 +794,8 @@ let selectedIndex = -1;
 let drag = null;
 let dialogueQueue = [];
 let dialogueOpen = false;
+let storySceneOpen = false;
+let completionModalOpen = false;
 let storyDialogsDeferred = false;
 const defaultBoardHint = 'Make treats, fill requests for stars, and spend coins to restore the harbor!';
 let feedbackMessage = defaultBoardHint;
@@ -764,6 +827,32 @@ function saveState() {
     // The session stays playable if browser storage is unavailable.
     return false;
   }
+}
+
+function enqueueCompletion(event, milestoneKey = '') {
+  if (!event || !Array.isArray(state.completionQueue)) return null;
+  if (milestoneKey && state.completionMilestones?.[milestoneKey]) return null;
+  if (milestoneKey) state.completionMilestones[milestoneKey] = true;
+  state.completionSequence = Math.max(0, Number(state.completionSequence) || 0) + 1;
+  const queued = {
+    ...event,
+    id:`completion-${state.completionSequence}`,
+    sequence:state.completionSequence,
+    priority:Number(event.priority) || 50,
+    queuedAt:Date.now()
+  };
+  state.completionQueue.push(queued);
+  state.completionQueue.sort((first, second) => first.priority - second.priority || first.sequence - second.sequence);
+  return queued;
+}
+
+function pumpCompletionQueue() {
+  if (completionModalOpen || storySceneOpen || dialogueOpen || tutorialStep !== null || !state.completionQueue?.length) return false;
+  if (document.querySelector('.modal, .story-scene, .restoration-scene-screen')) return false;
+  const next = state.completionQueue[0];
+  if (!next || typeof showCompletionPopup !== 'function') return false;
+  showCompletionPopup(next);
+  return true;
 }
 
 function unlockAudio() {
@@ -924,13 +1013,21 @@ function checkAchievements() {
 function advanceStory() {
   const unlocked = [];
   while (state.chapter < CHAPTERS.length && state.starsToward >= storyStarGoal(state.chapter)) {
+    const chapterIndex = state.chapter;
+    const chapter = CHAPTERS[chapterIndex];
     state.starsToward -= storyStarGoal(state.chapter);
-    unlocked.push(CHAPTERS[state.chapter]);
+    unlocked.push(chapter);
     state.chapter += 1;
     state.coins += 70;
     grantEnergy(8);
     grantXP(60);
     unlockAvailableGenerators();
+    enqueueCompletion({
+      kind:'chapter-unlock', priority:60, chapterIndex,
+      chapterTitle:chapter.title, art:storyArtwork(chapter),
+      message:`“${chapter.title}” is ready to read. Your star progress and chapter rewards are saved.`,
+      rewards:[{icon:'🪙',amount:70,label:'coins'},{icon:'⚡',amount:8,label:'energy'},{icon:'✦',amount:60,label:'XP'}]
+    }, `chapter-unlock-${chapterIndex}`);
   }
   checkAchievements();
   if (unlocked.length) dialogueQueue.push(...unlocked);
@@ -958,6 +1055,13 @@ function completeTask(index) {
     grantXP(20);
     updateDailyProgress('orders');
     feedbackMessage = `Delivery ${task.stage} of ${task.requirements.length} complete. One more helpful hand!`;
+    enqueueCompletion({
+      kind:'task', priority:10, title:'Task Completed!',
+      taskName:`${task.title} · Delivery ${task.stage} of ${task.requirements.length}`,
+      character:task.who, itemIcon:deliveredItem?.icon || '📦',
+      message:'That delivery is safely with the crew. One more helpful hand will finish the request.',
+      rewards:[{icon:'🪙',amount:25,label:'coins'},{icon:'⚡',amount:2,label:'energy'},{icon:'✦',amount:20,label:'XP'}]
+    });
     showFloat(`Stage ${task.stage}/${task.requirements.length} · +25🪙 +2⚡`);
     placePendingGenerators();
     render();
@@ -979,6 +1083,19 @@ function completeTask(index) {
   fillTasks();
   placePendingGenerators();
   checkAchievements();
+  enqueueCompletion({
+    kind:'task', priority:10, title:'Task Completed!',
+    taskName:deliveredItem?.name || task.title,
+    character:task.who, itemIcon:deliveredItem?.icon || '📦',
+    message:`${CHARS[task.who]?.name || 'Your neighbor'} is grateful for your help. The rewards are already added to your harbor supplies.`,
+    rewards:[
+      {icon:'🪙',amount:task.coins,label:'coins'},
+      ...(task.energy ? [{icon:'⚡',amount:task.energy,label:'energy'}] : []),
+      {icon:'⭐',amount:task.stars,label:'stars'},
+      ...(task.pearls ? [{icon:'💎',amount:task.pearls,label:'pearls'}] : []),
+      {icon:'✦',amount:task.xp || 35,label:'XP'}
+    ].filter(reward => reward.amount > 0)
+  });
   playPop();
   showFloat(`ORDER COMPLETE! +${task.coins}🪙${task.energy ? ` +${task.energy}⚡` : ''} +${task.stars}⭐${task.pearls ? ` +${task.pearls}🫧` : ''}`);
   render();
@@ -1034,7 +1151,11 @@ function activeStories() {
 }
 
 function openNextDialogue() {
-  if (storyDialogsDeferred || dialogueOpen) return;
+  if (storyDialogsDeferred || dialogueOpen || storySceneOpen || completionModalOpen) return;
+  if (state.completionQueue?.length) {
+    pumpCompletionQueue();
+    return;
+  }
   if (!dialogueQueue.length) {
     checkVictory();
     return;
@@ -1051,16 +1172,20 @@ function checkVictory() {
   const allRestored = restoredCount() >= totalRestorationCount();
   if (state.victorySeen || state.chapter < CHAPTERS.length || !allRestored) return;
   state.victorySeen = true;
-  saveState();
-  showDialogue({
-    title: 'The Harbor Comes Home',
-    lines: [
+  enqueueCompletion({
+    kind:'epilogue', priority:90, title:'The Harbor Comes Home',
+    chapterTitle:'A story made by everyone', art:'assets/restore-pier-scene.webp',
+    message:'Every chapter has been discovered and every harbor improvement is complete. Your boards remain open for relaxed free play.',
+    rewards:[],
+    lines:[
       ['mae', 'Look at us! The café is warm again, the pier is safe, the garden is in bloom, and every corner of the harbor has found its people again.'],
       ['theo', 'The harbor light is shining for everyone who needs a way home. We could not have done it without this town.'],
       ['iris', 'I am printing the whole story. Not as gossip this time—as a thank-you to everyone who helped bring Harbor Whispers back to life.'],
       ['mae', 'The mystery is solved, every place is mended, and the harbor is ours again. The story may be finished, but there is always room for one more order at my café.']
     ]
-  });
+  }, 'campaign-epilogue');
+  saveState();
+  pumpCompletionQueue();
 }
 
 function board() {
@@ -1522,6 +1647,103 @@ function showModal(content, bind) {
   return modal;
 }
 
+function completionRewardsMarkup(rewards = []) {
+  const available = rewards.filter(reward => Number(reward?.amount) > 0);
+  if (!available.length) return '';
+  return `<div class="completion-rewards" aria-label="Rewards collected">${available.map((reward,index) => `<div class="completion-reward" style="--reward-delay:${index * 80}ms"><span>${reward.icon || '✦'}</span><b data-reward-count="${Math.max(0,Number(reward.amount) || 0)}">${Math.max(0,Number(reward.amount) || 0)}</b><small>${reward.label || ''}</small></div>`).join('')}</div>`;
+}
+
+function completionCropMarkup(src, style = '', label = '', direct = false) {
+  if (!src) return '';
+  const className = direct ? 'completion-art-direct' : 'completion-art-atlas';
+  return `<img class="${className}" src="${src}" alt="${label}" style="${style}" draggable="false">`;
+}
+
+function completionVisualMarkup(event) {
+  const character = CHARS[event.character] ? event.character : 'mae';
+  const actor = CHARS[character];
+  if (event.kind === 'task' || event.kind === 'chore') {
+    return `<div class="completion-character-stage"><span class="completion-halo" aria-hidden="true"></span>${characterPortrait(character,'completion-character-portrait')}<span class="completion-item-bubble" aria-label="Completed item">${event.itemIcon || event.icon || actor.icon}</span><i class="completion-sparkle sparkle-a" aria-hidden="true">✦</i><i class="completion-sparkle sparkle-b" aria-hidden="true">✧</i></div>`;
+  }
+  if (event.kind === 'restoration') {
+    const before = completionCropMarkup(event.beforeArt,event.beforeStyle,event.beforeLabel,event.beforeDirect);
+    const after = completionCropMarkup(event.afterArt,event.afterStyle,event.afterLabel,event.afterDirect);
+    return `<div class="completion-before-after"><div class="completion-scene-frame before">${before}<small>BEFORE</small></div><span class="completion-scene-arrow" aria-hidden="true">›</span><div class="completion-scene-frame after">${after}<small>AFTER</small><i aria-hidden="true">✦</i></div></div>`;
+  }
+  if (event.kind === 'area') {
+    return `<div class="completion-area-stage">${event.directArt ? `<img src="${event.art}" alt="Fully restored ${event.locationName}" class="completion-area-image">` : `<div class="completion-area-crop">${completionCropMarkup(event.art,event.artStyle,`Fully restored ${event.locationName}`,false)}</div>`}<div class="completion-area-ribbon">${event.locationIcon || '🏡'} ${event.locationName}</div><span class="completion-garland" aria-hidden="true">✦ ✧ ✦</span></div>`;
+  }
+  if (event.kind === 'level') {
+    return `<div class="completion-level-stage"><span class="completion-level-rays" aria-hidden="true">✦　✧　✦</span>${characterPortrait('iris','completion-level-portrait')}<b class="completion-level-number">${event.level}</b><small>HARBOR LEVEL</small></div>`;
+  }
+  return `<div class="completion-story-stage" style="--completion-story-art:url('${event.art || 'assets/harbor-bg.webp'}')"><img src="${event.art || 'assets/harbor-bg.webp'}" alt="${event.chapterTitle || 'Harbor story'}"><span class="completion-story-badge">${event.kind === 'caught-up' ? '📖' : event.kind === 'chapter-unlock' ? '✨' : '🌅'}</span><i class="completion-sparkle sparkle-a" aria-hidden="true">✦</i><i class="completion-sparkle sparkle-b" aria-hidden="true">✧</i></div>`;
+}
+
+function completionHeading(event) {
+  const headings = {
+    task:'Task Completed!', chore:'Task Completed!', restoration:'Restoration Complete!',
+    area:'Area Completely Restored!', 'story-day':'Story Day Completed!',
+    'chapter-unlock':'A New Chapter!', 'caught-up':'You’re All Caught Up!',
+    level:'Level Up!', epilogue:'The Harbor Comes Home'
+  };
+  return headings[event.kind] || event.title || 'Harbor Milestone!';
+}
+
+function showCompletionPopup(event) {
+  if (!event || completionModalOpen || document.querySelector('.modal, .story-scene')) return;
+  completionModalOpen = true;
+  const modal = document.createElement('div');
+  modal.className = `completion-overlay completion-${event.kind}`;
+  modal.setAttribute('role','dialog');
+  modal.setAttribute('aria-modal','true');
+  modal.setAttribute('aria-label',completionHeading(event));
+  const subtitle = event.taskName || event.repairName || event.chapterTitle || event.locationName || (event.kind === 'level' ? `Level ${event.level}` : '');
+  const progress = event.progress ? `<div class="completion-progress">${event.progress}</div>` : '';
+  const unlocks = event.newlyUnlocked?.length
+    ? `<div class="completion-unlocks"><small>NEWLY UNLOCKED</small><b>${event.newlyUnlocked.join(' · ')}</b></div>`
+    : '';
+  const buttonLabel = event.kind === 'caught-up' ? 'Return to Game' : 'Continue';
+  modal.innerHTML = `<div class="completion-card" role="document"><div class="completion-confetti" aria-hidden="true">${Array.from({length:12},(_,index)=>`<i style="--confetti-index:${index}">${['✦','•','✧','★'][index%4]}</i>`).join('')}</div><div class="completion-rim" aria-hidden="true"></div><header class="completion-heading"><small>${event.kind === 'task' || event.kind === 'chore' ? 'A HARBOR FAVOR FINISHED' : event.kind === 'restoration' ? 'A VISIBLE CHANGE IN TOWN' : event.kind === 'area' ? 'A HARBOR-WIDE MILESTONE' : event.kind === 'level' ? 'YOUR HARBOR JOURNEY' : 'THE HARBOR JOURNAL'}</small><h2>${completionHeading(event)}</h2>${subtitle ? `<b class="completion-subtitle">${subtitle}</b>` : ''}</header>${completionVisualMarkup(event)}${progress}${event.message ? `<p class="completion-message">${event.message}</p>` : ''}${unlocks}${completionRewardsMarkup(event.rewards)}<button class="completion-continue" type="button">${buttonLabel}<span aria-hidden="true">›</span></button></div>`;
+  document.body.appendChild(modal);
+  const continueButton = modal.querySelector('.completion-continue');
+  continueButton?.focus({preventScroll:true});
+  modal.querySelectorAll('[data-reward-count]').forEach(counter => {
+    const amount = Number(counter.dataset.rewardCount) || 0;
+    const start = performance.now();
+    const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 620;
+    const animate = now => {
+      const ratio = duration ? Math.min(1,(now - start) / duration) : 1;
+      counter.textContent = String(Math.round(amount * (1 - Math.pow(1 - ratio,3))));
+      if (ratio < 1 && modal.isConnected) requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  });
+  continueButton?.addEventListener('click', () => {
+    if (continueButton.disabled) return;
+    continueButton.disabled = true;
+    const queueIndex = state.completionQueue.findIndex(queued => queued.id === event.id);
+    if (queueIndex >= 0) state.completionQueue.splice(queueIndex,1);
+    completionModalOpen = false;
+    modal.remove();
+    saveState();
+    playPop();
+    if (event.kind === 'caught-up') {
+      currentBoardKey = 'main';
+      selectedIndex = -1;
+      feedbackMessage = 'You’re all caught up on the available story. Your Town board and relaxed free play are ready.';
+      render();
+    }
+    if (event.kind === 'epilogue') {
+      showDialogue({title:event.title || 'The Harbor Comes Home',lines:event.lines || []},() => {
+        render();
+        openNextDialogue();
+      });
+      return;
+    }
+    if (!pumpCompletionQueue()) openNextDialogue();
+  },{once:true});
+}
+
 const STORY_SCENES = [
   'assets/restore-cafe-before.webp',
   'assets/restore-pier-before.webp',
@@ -1554,12 +1776,14 @@ function showDialogue(chapter, onClose = () => {}) {
   modal.className = 'story-scene';
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
+  storySceneOpen = true;
   document.body.appendChild(modal);
   function finishDialogue() {
     if (closed) return;
     closed = true;
     window.clearInterval(typewriterTimer);
     modal.remove();
+    storySceneOpen = false;
     onClose();
   }
   function advanceLine() {
@@ -2041,43 +2265,88 @@ function renderLocationStrip() {
   }).join('');
 }
 
-const LOCATION_WORKSITE_ART = {
-  cafe:'assets/restore-cafe-room-after.webp',
-  pier:'assets/restore-pier-0.webp',
-  garden:'assets/restore-garden-0.webp',
-  office:'assets/gazette-worksite-portrait.webp',
-  market:'assets/market-square-worksite-portrait.webp',
-  lighthouse:'assets/lighthouse-isometric-worksite.webp',
-  workshop:'assets/workshop-worksite-portrait.webp',
-  archive:'assets/archive-worksite-portrait.webp',
-  wharf:'assets/wharf-isometric-worksite.webp',
-  festival:'assets/festival-isometric-worksite.webp'
+const RESTORATION_PLATE_ATLASES = {
+  cafe: { src:'assets/restore-cafe-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
+  pier: { src:'assets/restore-pier-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
+  garden: { src:'assets/restore-garden-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) },
+  office: { src:'assets/restore-gazette-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) },
+  market: { src:'assets/restore-market-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) },
+  lighthouse: { src:'assets/restore-lighthouse-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
+  workshop: { src:'assets/restore-workshop-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
+  archive: { src:'assets/restore-archive-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) },
+  wharf: { src:'assets/restore-wharf-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
+  festival: { src:'assets/restore-festival-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) }
+};
+const RESTORATION_FALLBACK_ART = {
+  cafe:'assets/restore-cafe-room-before.webp',
+  pier:'assets/restore-pier-before.webp',
+  garden:'assets/restore-garden-before.webp',
+  office:'assets/restore-gazette-before.webp',
+  market:'assets/restore-market-square.webp',
+  lighthouse:'assets/restore-lighthouse-yard.webp',
+  workshop:'assets/restore-workshop-yard.webp',
+  archive:'assets/restore-archive-room.webp',
+  wharf:'assets/restore-old-wharf.webp',
+  festival:'assets/restore-festival-plaza.webp'
 };
 
-function restorationBaseArt(location, level = 0) {
-  const safeLevel = Math.max(0, Math.min(8, Number(level) || 0));
-  if (location.id === 'garden') return `assets/restore-garden-${safeLevel}.webp`;
-  if (location.id === 'pier') return `assets/restore-pier-${safeLevel}.webp`;
-  if (location.id === 'cafe') {
-    if (safeLevel <= 5) return `assets/restore-cafe-room-${safeLevel}.webp`;
-    if (safeLevel === 6) return 'assets/restore-cafe-kitchen-after.webp';
-    if (safeLevel === 7) return 'assets/restore-cafe-7.webp';
-    return 'assets/restore-cafe-deck-8.webp';
+const CAFE_DIRECT_PLATES = Object.freeze({
+  'assets/restore-cafe-room-0.webp': {width:1152,height:1536},
+  'assets/restore-cafe-room-1.webp': {width:512,height:576},
+  'assets/restore-cafe-room-2.webp': {width:512,height:576},
+  'assets/restore-cafe-room-3.webp': {width:512,height:576},
+  'assets/restore-cafe-room-4.webp': {width:512,height:576},
+  'assets/restore-cafe-room-5.webp': {width:512,height:576},
+  'assets/restore-cafe-kitchen-before.webp': {width:1024,height:768},
+  'assets/restore-cafe-kitchen-after.webp': {width:1024,height:768},
+  'assets/restore-cafe-deck-0.webp': {width:864,height:1536},
+  'assets/restore-cafe-7.webp': {width:864,height:1536},
+  'assets/restore-cafe-deck-8.webp': {width:864,height:1536}
+});
+
+function restorationPlateAtlas(locationId) {
+  return RESTORATION_PLATE_ATLASES[locationId] || RESTORATION_PLATE_ATLASES.cafe;
+}
+
+function restorationPlateImageStyle(locationId, step, src = '') {
+  if (locationId === 'cafe' && CAFE_DIRECT_PLATES[src]) return '';
+  const atlas = restorationPlateAtlas(locationId);
+  const frame = atlas.frames[Math.max(0,Math.min(8,Math.floor(Number(step)||0)))];
+  return `--plate-atlas-width:${(atlas.width / frame.w * 100).toFixed(4)}%;--plate-atlas-height:${(atlas.height / frame.h * 100).toFixed(4)}%;--plate-atlas-left:${(-frame.x / frame.w * 100).toFixed(4)}%;--plate-atlas-top:${(-frame.y / frame.h * 100).toFixed(4)}%`;
+}
+
+function restorationPlateFrameSize(locationId, step, src = '') {
+  if (locationId === 'cafe' && CAFE_DIRECT_PLATES[src]) {
+    const size = CAFE_DIRECT_PLATES[src];
+    return {x:0,y:0,w:size.width,h:size.height};
   }
-  return LOCATION_WORKSITE_ART[location.id] || LOCATION_WORKSITE_ART.cafe;
+  const atlas = restorationPlateAtlas(locationId);
+  return atlas.frames[Math.max(0,Math.min(8,Math.floor(Number(step)||0)))];
+}
+
+function restorationBaseArt(location) {
+  return restorationPlateAtlas(location.id).src;
 }
 
 function restorationArt(location, level) {
   const detail = repairDetailState(location.id, level) || {};
-  const previousPlate = restorationBaseArt(location, level - 1);
-  const currentPlate = restorationBaseArt(location, level);
-  const art = {
-    before:detail.plateBefore || previousPlate,
-    after:detail.plateAfter || currentPlate,
+  const atlas = restorationBaseArt(location);
+  const useDirectCafePlates = location.id === 'cafe' && detail.plateBefore && detail.plateAfter;
+  return {
+    ...detail,
+    before:useDirectCafePlates ? detail.plateBefore : atlas,
+    after:useDirectCafePlates ? detail.plateAfter : atlas,
+    beforeFrame:Math.max(0,level - 1),
+    afterFrame:Math.min(8,level),
     interior:detail.zone === 'indoor',
-    kitchen:location.id === 'cafe' && level === 6
+    focused:false
   };
-  return { ...art, ...detail, focused:false };
+}
+
+function cafeFloorTintMarkup(plate, floor = getCafeFloor()) {
+  if (!/^assets\/restore-cafe-room-[45]\.webp$/.test(plate)) return '';
+  const tint = CAFE_FLOORS.some(option => option.id === floor?.id) ? floor.color : CAFE_FLOORS[0].color;
+  return `<svg class="cafe-floor-tint" viewBox="0 0 512 576" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style="--cafe-floor-tone:${tint}"><path d="M43 384 181 337h229l68 49v190H43Z"/></svg>`;
 }
 
 function restorationSceneLines(location, kind, requestedLevel = 0) {
@@ -2143,6 +2412,34 @@ function commitRestoration(choice = null) {
     receipt.status = 'committed';
     receipt.committedAt = Date.now();
     checkAchievements();
+    const stageTitle = RESTORATION_STAGES[location.id]?.[level - 1]?.[0] || `${location.name} improvement`;
+    const detail = repairDetailState(location.id, level) || {};
+    const visual = restorationArt(location, level);
+    const beforeDirect = location.id === 'cafe' && Boolean(CAFE_DIRECT_PLATES[visual.before]);
+    const afterDirect = location.id === 'cafe' && Boolean(CAFE_DIRECT_PLATES[visual.after]);
+    enqueueCompletion({
+      kind:'restoration', priority:20, locationName:location.name,
+      repairName:detail.repairItem || stageTitle, icon:location.decos[level - 1],
+      beforeArt:visual.before, afterArt:visual.after,
+      beforeStyle:restorationPlateImageStyle(location.id,visual.beforeFrame,visual.before),
+      afterStyle:restorationPlateImageStyle(location.id,visual.afterFrame,visual.after),
+      beforeDirect, afterDirect,
+      beforeLabel:detail.beforeState || stageTitle,
+      afterLabel:detail.afterState || stageTitle,
+      progress:`${location.icon} ${level} / ${location.decos.length} improvements`,
+      message:`${detail.repairItem || stageTitle} is repaired and now appears in ${location.name}.`,
+      rewards:[{icon:'🪙',amount:coinReward,label:'coins'},{icon:'⭐',amount:1,label:'star'},{icon:'✦',amount:20,label:'XP'}]
+    }, `restoration-${location.id}-${level}`);
+    if (level >= location.decos.length) {
+      enqueueCompletion({
+        kind:'area', priority:30, locationName:location.name, locationIcon:location.icon,
+        art:visual.after, artStyle:restorationPlateImageStyle(location.id,visual.afterFrame,visual.after),
+        directArt:afterDirect,
+        progress:`${location.decos.length} / ${location.decos.length} improvements`,
+        message:`Every restoration task in the ${location.name.toLowerCase()} is complete. The finished scene is saved for every visit.`,
+        rewards:[]
+      }, `area-complete-${location.id}`);
+    }
   } else {
     state.levels[location.id] = Math.max(Number(state.levels[location.id]) || 0, level);
     receipt.committed = true;
@@ -2222,23 +2519,13 @@ function restorationNavMarkupLegacy(locationId = '') {
   </nav>`;
 }
 
-const REPAIR_MAIL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h17v12h-17z"/><path d="m4 7 8 6 8-6"/></svg>';
-const REPAIR_GEAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2h4l.7 2.2 2 .9 2-1.1 2.8 2.8-1.1 2 .9 2L23 11.5v4l-2.2.7-.9 2 1.1 2-2.8 2.8-2-1.1-2 .9L14 24h-4l-.7-2.2-2-.9-2 1.1-2.8-2.8 1.1-2-.9-2L2 16v-4l2.2-.7.9-2-1.1-2 2.8-2.8 2 1.1 2-.9z" transform="translate(-1 -1) scale(.92)"/><circle cx="12" cy="13" r="3.1"/></svg>';
-
-function restorationHudMarkup(locationId = '') {
+function restorationHudMarkup() {
   const xpPercent = Math.min(100, state.xp / Math.max(1, xpForNextLevel()) * 100);
-  const location = LOCATIONS.find(entry => entry.id === locationId) || nextRestorationGoal() || LOCATIONS[0];
-  const locationProgress = Math.min(location.decos.length, Number(state.levels[location.id]) || 0);
-  const progressPercent = Math.round(locationProgress / location.decos.length * 100);
-  const unread = Boolean(state.storyMoments?.length);
   return `<section class="restoration-hud" aria-label="Player status"><div class="restoration-hud-top">
     <div class="restoration-level" aria-label="Level ${state.playerLevel}, ${state.xp} of ${xpForNextLevel()} experience"><b>${state.playerLevel}</b><i><b style="width:${xpPercent}%"></b></i></div>
     <div class="restoration-resources" aria-label="Harbor resources"><div class="repair-resource repair-energy" aria-label="${state.energy} of ${maxEnergy()} energy"><span>⚡</span><b data-repair-energy-value>${state.energy}</b></div><div class="repair-resource repair-coins" aria-label="${state.coins} coins"><span>🪙</span><b>${state.coins}</b></div><div class="repair-resource repair-stars" aria-label="${state.stars} stars"><span>⭐</span><b>${state.stars}</b></div><div class="repair-resource repair-gems" aria-label="${state.pearls} gems"><span>💎</span><b>${state.pearls}</b></div></div>
   </div></section>
-  <div class="repair-subcontrols"><button class="restoration-back" type="button" data-restoration-return aria-label="Back to Town">‹</button><div class="restoration-hud-utilities"><button type="button" data-repair-utility="journal" aria-label="Open mail and story journal">${REPAIR_MAIL_SVG}${unread ? '<i class="mail-unread-dot" aria-label="Unread message"></i>' : ''}</button><button type="button" data-repair-utility="more" aria-label="Open settings and harbor menu">${REPAIR_GEAR_SVG}</button></div></div>
-  <button class="restoration-story-progress" type="button" data-repair-story aria-label="${location.name}: ${progressPercent}% restored. Open story and chapter information"><span>${location.icon}<b>${progressPercent}%</b></span><i><b style="width:${progressPercent}%"></b></i></button>
-  <aside class="restoration-edge-actions restoration-edge-left" aria-label="Harbor shortcuts"><button type="button" data-repair-utility="event" aria-label="Open picnic bonus board">🏖️</button><button type="button" data-repair-utility="goals" aria-label="Open harbor goals">🥐</button></aside>
-  <aside class="restoration-edge-actions restoration-edge-right" aria-label="Harbor shortcuts"><button type="button" data-repair-utility="more" aria-label="Open shop and harbor menu">🛍️</button><button type="button" data-repair-utility="journal" aria-label="Open story journal">📖${unread ? '<i class="shortcut-badge">!</i>' : ''}</button><button type="button" data-repair-utility="inventory" aria-label="Open items inventory">🧺</button></aside>`;
+  <div class="repair-subcontrols"><button class="restoration-back" type="button" data-restoration-return aria-label="Back to Town">‹</button><div class="restoration-hud-utilities"><button type="button" class="repair-sound-toggle" data-repair-utility="sound" aria-label="${muted ? 'Turn sound on' : 'Turn sound off'}"><span>${muted ? '🔇' : '🔊'}</span></button></div></div>`;
 }
 
 function restorationNavMarkup() {
@@ -2259,8 +2546,10 @@ function restorationHotspotsMarkup(locationId, activeLevel, selectedLevel = 0, p
   if (!detail) return '';
   const x = ((detail.x + detail.width / 2) / 576) * 100;
   const y = ((detail.y + detail.height / 2) / 1024) * 100;
+  const width = (detail.width / 576) * 100;
+  const height = (detail.height / 1024) * 100;
   const unaffordable = state.coins < cost;
-  return `<button class="repair-cost-bubble ${unaffordable ? 'unaffordable' : ''}" type="button" data-open-repair aria-label="${detail.repairItem}, repair cost ${cost} coins" style="--repair-hit-x:${x}%;--repair-hit-y:${y}%"><span aria-hidden="true">${detail.tool || '🔨'}</span><img src="assets/harbor-gold-coin.webp" alt=""><b>${cost}</b><i aria-hidden="true"></i></button>`;
+  return `<button class="repair-hotspot-marker ${unaffordable ? 'unaffordable' : ''}" type="button" data-open-repair aria-label="${detail.repairItem}, repair cost ${cost} coins" style="--repair-hit-x:${x}%;--repair-hit-y:${y}%;--repair-hit-width:${width}%;--repair-hit-height:${height}%"><span class="repair-cost-bubble"><span class="repair-bubble-tool" aria-hidden="true">${detail.tool || '🔨'}</span><img src="assets/harbor-gold-coin.webp" alt=""><b>${cost}</b><i aria-hidden="true"></i></span></button>`;
 }
 
 function restorationSelectionMarkup() { return ''; }
@@ -2294,6 +2583,16 @@ function bindRestorationChrome(overlay, exitToBoard) {
   overlay.querySelectorAll('[data-restoration-nav], [data-repair-utility]').forEach(button => {
     button.addEventListener('click', () => {
       const destination = button.dataset.restorationNav || button.dataset.repairUtility;
+      if (destination === 'sound') {
+        muted = !muted;
+        try { localStorage.setItem('harbor-whispers-muted', String(muted)); } catch (error) { /* Sound still changes for this session. */ }
+        if (muted) music.pause();
+        else unlockAudio();
+        const icon = button.querySelector('span');
+        if (icon) icon.textContent = muted ? '🔇' : '🔊';
+        button.setAttribute('aria-label', muted ? 'Turn sound on' : 'Turn sound off');
+        return;
+      }
       if (destination === 'repairs') return;
       if (destination === 'town') { exitToBoard('main'); return; }
       if (destination === 'picnic' || destination === 'event') { exitToBoard('event'); return; }
@@ -2334,7 +2633,7 @@ function showRestorationMoment(location, level, resume = false) {
   if (savedIndex >= 0) selectedChoice = savedIndex;
 
   const overlay = document.createElement('section');
-  overlay.className = `restoration-scene-screen restoration-repair-screen ${location.id === 'cafe' ? 'restoration-cafe-screen' : 'restoration-portrait-screen'}`;
+  overlay.className = `restoration-scene-screen restoration-repair-screen ${location.id === 'cafe' ? 'restoration-cafe-screen' : 'restoration-portrait-screen'} ${location.id === 'cafe' && CAFE_DIRECT_PLATES[art.before] ? 'restoration-direct-cafe-stage' : ''}`;
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-label', `${location.name} restoration scene`);
@@ -2397,12 +2696,16 @@ function showRestorationMoment(location, level, resume = false) {
     const canvas = overlay.querySelector('.restoration-art-canvas');
     const beforeArt = overlay.querySelector('.restoration-world-before');
     if (!world || !canvas) return;
-    if (beforeArt?.naturalWidth && beforeArt?.naturalHeight) {
+    if (beforeArt?.dataset.frameWidth && beforeArt?.dataset.frameHeight) {
+      camera.planeHeight = CAMERA_WIDTH * Number(beforeArt.dataset.frameHeight) / Number(beforeArt.dataset.frameWidth);
+    } else if (beforeArt?.naturalWidth && beforeArt?.naturalHeight) {
       camera.planeHeight = CAMERA_WIDTH * beforeArt.naturalHeight / beforeArt.naturalWidth;
     }
     canvas.style.setProperty('--camera-plane-height', `${camera.planeHeight}px`);
     const viewWidth = Math.max(1, world.clientWidth);
     const viewHeight = Math.max(1, world.clientHeight);
+    // Cover the viewport so portrait repair artwork reaches both screen edges.
+    // This crops only the sides on narrow phones while keeping the plate undistorted.
     const baseZoom = Math.max(viewWidth / CAMERA_WIDTH, viewHeight / camera.planeHeight);
     const resized = camera.initialized && (
       viewWidth !== camera.lastViewWidth ||
@@ -2438,6 +2741,19 @@ function showRestorationMoment(location, level, resume = false) {
     canvas.style.setProperty('--camera-x', `${camera.x}px`);
     canvas.style.setProperty('--camera-y', `${camera.y}px`);
     canvas.style.setProperty('--camera-zoom', String(camera.zoom));
+    canvas.style.setProperty('--camera-counter-zoom', String(1 / Math.max(.01, camera.zoom)));
+  }
+  function focusCameraOnHotspot() {
+    const world = overlay.querySelector('.restoration-world');
+    if (!world) return;
+    const detail = repairDetailState(location.id, level);
+    if (!detail) return;
+    const artX = ((detail.x + detail.width / 2) / 576) * CAMERA_WIDTH;
+    const artY = ((detail.y + detail.height / 2) / 1024) * camera.planeHeight;
+    camera.x = world.clientWidth / 2 - artX * camera.zoom;
+    camera.y = world.clientHeight / 2 - artY * camera.zoom;
+    clampCamera(world);
+    applyCamera();
   }
   function cameraPoint(event, world) {
     const rect = world.getBoundingClientRect();
@@ -2453,7 +2769,7 @@ function showRestorationMoment(location, level, resume = false) {
     return CAMERA_WIDTH * camera.zoom > world.clientWidth + .5 || camera.planeHeight * camera.zoom > world.clientHeight + .5;
   }
   function cameraPointerDown(event) {
-    if (event.target.closest('.repair-cost-bubble, .restoration-nav, .restoration-hud, .repair-subcontrols, .restoration-story-progress, .restoration-edge-actions, .repair-design-dialog, .restoration-bottom')) return;
+    if (event.target.closest('.repair-hotspot-marker, .repair-cost-bubble, .restoration-nav, .restoration-hud, .repair-subcontrols, .restoration-story-progress, .restoration-edge-actions, .repair-design-dialog, .restoration-bottom')) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const world = overlay.querySelector('.restoration-world');
     if (!world) return;
@@ -2543,12 +2859,28 @@ function showRestorationMoment(location, level, resume = false) {
     const designStylesByLevel = Object.fromEntries(Object.entries(RESTORATION_DESIGNS[location.id] || {}).map(([stageLevel, style]) => [
       Number(stageLevel), state.locationStyles?.[location.id]?.[style.key] || (style.key === 'floor' ? state.cafeFloor : '')
     ]));
-    const activeFeatureStyle = selectedDesign()?.id || (design ? state.locationStyles?.[location.id]?.[design.key] : '') || '';
-    const featureMarkup = repairSceneFeaturesMarkup(location.id, restoredLevel, level, phase, activeFeatureStyle, designStylesByLevel);
     const bubbleMarkup = restorationHotspotsMarkup(location.id, level, 0, phase, cost);
     const castMarkup = restorationCastMarkup(location.id, level);
     const targetX = ((repairState.x + repairState.width / 2) / 576) * 100;
     const targetY = ((repairState.y + repairState.height / 2) / 1024) * 100;
+    const isBeforePhase = phase === 'objective' || phase === 'work';
+    const plateStep = isBeforePhase ? art.beforeFrame : art.afterFrame;
+    const currentPlate = isBeforePhase ? art.before : art.after;
+    const plateFrame = restorationPlateFrameSize(location.id, plateStep, currentPlate);
+    const directPlateClass = location.id === 'cafe' && CAFE_DIRECT_PLATES[currentPlate] ? ' restoration-world-direct-plate' : '';
+    const plateMarkup = `<img class="restoration-world-before restoration-world-plate${directPlateClass}" src="${currentPlate}" alt="${isBeforePhase ? art.beforeState : art.afterState || `Restored ${location.name} worksite`}" style="${restorationPlateImageStyle(location.id, plateStep, currentPlate)}" data-frame-width="${plateFrame.w}" data-frame-height="${plateFrame.h}" draggable="false">`;
+    const floorStyle = location.id === 'cafe' && level === 4 && phase === 'design' ? selectedDesign() : getCafeFloor();
+    const floorTintMarkup = location.id === 'cafe' ? cafeFloorTintMarkup(currentPlate, floorStyle) : '';
+    const revealFrame = restorationPlateFrameSize(location.id, art.afterFrame, art.after);
+    const revealAtlas = location.id === 'cafe' && CAFE_DIRECT_PLATES[art.after]
+      ? {width:revealFrame.w,height:revealFrame.h}
+      : restorationPlateAtlas(location.id);
+    const maskX = ((revealFrame.x + targetX / 100 * revealFrame.w) / revealAtlas.width * 100).toFixed(3);
+    const maskY = ((revealFrame.y + targetY / 100 * revealFrame.h) / revealAtlas.height * 100).toFixed(3);
+    const revealRadius = Math.hypot(repairState.width, repairState.height) * .72 * (1620 / 576);
+    const revealDirectClass = location.id === 'cafe' && CAFE_DIRECT_PLATES[art.after] ? ' restoration-world-direct-plate' : '';
+    const revealMarkup = phase === 'work' ? `<img class="restoration-world-reveal${revealDirectClass}" src="${art.after}" alt="" style="${restorationPlateImageStyle(location.id, art.afterFrame, art.after)};--repair-mask-x:${maskX}%;--repair-mask-y:${maskY}%;--repair-mask-radius:${revealRadius.toFixed(1)}px" data-frame-width="${revealFrame.w}" data-frame-height="${revealFrame.h}" draggable="false">` : '';
+    const workEffects = phase === 'work' ? `<div class="repair-action-fx" aria-hidden="true"><span>🔨</span><i>✦</i><i>✧</i><i>✦</i></div>` : '';
     const choiceCards = design ? design.choices.map((option,index) => `
       <button class="restoration-choice ${selectedChoice === index ? 'selected' : ''}" type="button" data-restoration-choice="${index}" aria-label="Preview ${option.name}: ${option.description}" aria-pressed="${selectedChoice === index}" style="--choice-color:${option.color}">
         <span class="restoration-choice-art">${repairDesignArtMarkup(location.id, level, option.id)}</span>
@@ -2562,20 +2894,41 @@ function showRestorationMoment(location, level, resume = false) {
       ? `<div class="repair-toast" role="status">${level >= location.decos.length ? 'Location restored' : 'Complete!'}</div>${state.pendingRestoration?.committed ? `<div class="repair-floating-reward" style="--repair-target-x:${targetX}%;--repair-target-y:${targetY}%" aria-hidden="true">+⭐ <b>+20 XP</b><i>✦</i><i>✧</i></div>` : ''}`
       : '';
     overlay.innerHTML = `<div class="restoration-shell repair-scene-shell" style="--repair-accent:${film.accent};--restoration-design-color:${designColor};--restoration-backdrop:url('${art.before}')">
-      ${restorationHudMarkup(location.id)}
-      <div class="restoration-world" data-phase="${phase}" data-location="${location.id}" data-repair-level="${level}" data-repair-mode="${repairState.mode || ''}" role="group" aria-label="${location.name} ${stage[0]} worksite">
+      ${restorationHudMarkup()}
+      <div class="restoration-world" data-phase="${phase}" data-location="${location.id}" data-repair-level="${level}" data-repair-mode="${repairState.mode || ''}" style="--repair-target-x:${targetX}%;--repair-target-y:${targetY}%" role="group" aria-label="${location.name} ${stage[0]} worksite">
         <div class="restoration-art-frame"><div class="restoration-art-canvas">
-          <img class="restoration-world-before" src="${art.before}" alt="${art.beforeState || `Current ${location.name} worksite`}" fetchpriority="high" draggable="false"><img class="restoration-world-after" src="${art.after}" alt="${location.name} with ${repairState.repairItem || stage[0]} restored" draggable="false">
-          ${featureMarkup}${castMarkup}${bubbleMarkup}${successToast}
+          ${plateMarkup}${revealMarkup}${floorTintMarkup}${castMarkup}${bubbleMarkup}${workEffects}${successToast}
         </div></div>
       </div>
       ${content ? `<main class="restoration-bottom">${content}</main>` : ''}
       ${restorationNavMarkup()}
     </div>`;
     applyCamera();
-    const beforeImage = overlay.querySelector('.restoration-world-before');
-    if (beforeImage?.complete) applyCamera();
-    else beforeImage?.addEventListener('load', applyCamera, {once:true});
+    const beforeImage = overlay.querySelector('.restoration-world-plate');
+    const revealImage = overlay.querySelector('.restoration-world-reveal');
+    [beforeImage, revealImage].filter(Boolean).forEach(image => {
+      const handlePlateError = () => {
+        console.error(`[Harbor Whispers] Failed to load restoration plate ${image.src}.`);
+        if (image.classList.contains('restoration-world-reveal')) {
+          image.remove();
+          return;
+        }
+        const fallback = RESTORATION_FALLBACK_ART[location.id];
+        if (fallback && image.dataset.fallbackAttempted !== 'true') {
+          image.dataset.fallbackAttempted = 'true';
+          image.classList.remove('restoration-world-plate');
+          image.style.cssText = '';
+          image.removeAttribute('data-frame-width');
+          image.removeAttribute('data-frame-height');
+          image.addEventListener('load', applyCamera, {once:true});
+          image.src = fallback;
+          return;
+        }
+        image.style.visibility = 'hidden';
+      };
+      image.addEventListener('error', handlePlateError);
+      if (!image.complete) image.addEventListener('load', applyCamera, {once:true});
+    });
     overlay.querySelector('[data-open-repair]')?.addEventListener('click', openRepairDetails);
     overlay.querySelectorAll('[data-restoration-choice]').forEach(button => button.onclick = () => {
       if (phase !== 'design' || !design) return;
@@ -2643,6 +2996,7 @@ function showRestorationMoment(location, level, resume = false) {
     const repairState = repairDetailState(location.id, level) || {};
     beep(repairState.mode === 'plants' ? 520 : repairState.mode === 'window' ? 790 : repairState.mode === 'roof' ? 460 : 650);
     renderScene();
+    focusCameraOnHotspot();
     sceneTimer = window.setTimeout(finishWork, workDurationMs);
   }
 
@@ -2690,34 +3044,21 @@ function showRestorationMoment(location, level, resume = false) {
     }
     window.clearTimeout(sceneTimer);
     window.clearInterval(hudTimer);
+    releaseCamera();
+    overlay.remove();
     currentBoardKey = 'main';
     selectedIndex = -1;
-    feedbackMessage = `${location.name} improved. The next harbor story is waiting in the Journal.`;
-    storyDialogsDeferred = true;
-    advanceStory();
-
-    if (level >= location.decos.length) {
-      locationRestoredNotice = true;
-      renderScene();
-      showFloat(`${location.name} restored · +1⭐ +${coinReward}🪙 +20 XP`);
-      window.setTimeout(() => {
-        if (!overlay.isConnected) return;
-        overlay.querySelector('.repair-toast')?.remove();
-        locationRestoredNotice = false;
-      }, 1500);
-      return;
-    }
-
-    overlay.remove();
-    releaseCamera();
+    feedbackMessage = `${location.name} improved. Your saved harbor changes are ready to see on every visit.`;
     render();
     const rewards = [['coins',coinReward,'.coin-pill'],['stars',1,'.star-pill'],['xp',20,'.profile-badge']];
     rewards.forEach(([type,amount,selector],index) => window.setTimeout(() => flyReward({sourcePoint,targetElement:container.querySelector(selector),type,amount}), index * 85));
-    showFloat(`Complete! +⭐ +${coinReward}🪙 +20 XP`);
-    showRestorationMoment(location, level + 1);
+    showFloat(`${location.name} improved · +⭐ +${coinReward}🪙 +20 XP`);
+    storyDialogsDeferred = false;
+    advanceStory();
   }
 
   renderScene();
+  if (!resume && phase === 'objective') window.requestAnimationFrame(focusCameraOnHotspot);
   if (phase === 'work' && savedPending) {
     const startedAtValue = Number(savedPending.workStartedAt);
     const startedAt = Number.isFinite(startedAtValue) && startedAtValue > 0 ? startedAtValue : Date.now();
@@ -2736,7 +3077,14 @@ function showLocationVisit(location) {
   const level = Math.min(location.decos.length, Number(state.levels[location.id]) || 0);
   if (!level) return showRestorationMoment(location, 1);
   const film = RESTORATION_FILMS[location.film] || RESTORATION_FILMS.cafe;
-  const art = restorationBaseArt(location, level);
+  const visitDetail = repairDetailState(location.id, level);
+  const art = location.id === 'cafe'
+    ? visitDetail?.plateAfter || restorationBaseArt(location)
+    : restorationBaseArt(location);
+  const plateFrame = restorationPlateFrameSize(location.id, level, art);
+  const plateStyle = restorationPlateImageStyle(location.id, level, art);
+  const plateClassSuffix = location.id === 'cafe' && CAFE_DIRECT_PLATES[art] ? ' restoration-world-direct-plate' : '';
+  const floorTintMarkup = location.id === 'cafe' ? cafeFloorTintMarkup(art, getCafeFloor()) : '';
   const styles = { ...(state.locationStyles?.[location.id] || {}) };
   const visualStyles = restorationStylesFor(location.id);
   const styleLevel = level >= 8 ? 8 : level >= 7 ? 7 : level >= 4 ? 4 : 0;
@@ -2746,11 +3094,11 @@ function showLocationVisit(location) {
   const chosen = cafeFinish ? { name:cafeFinish.name, color:cafeFinish.color, icon:savedChoice?.icon || '🪵' } : savedChoice;
   if (cafeFinish && styles.floor) styles.floor = state.cafeFloor;
   const overlay = document.createElement('section');
-  overlay.className = `restoration-scene-screen ${location.id === 'cafe' ? 'restoration-cafe-screen' : 'restoration-portrait-screen'}`;
+  overlay.className = `restoration-scene-screen ${location.id === 'cafe' ? 'restoration-cafe-screen' : 'restoration-portrait-screen'} ${location.id === 'cafe' && CAFE_DIRECT_PLATES[art] ? 'restoration-direct-cafe-stage' : ''}`;
   overlay.setAttribute('role','dialog');
   overlay.setAttribute('aria-modal','true');
   overlay.setAttribute('aria-label',`Visit restored ${location.name}`);
-  overlay.innerHTML = `<div class="restoration-shell restoration-visit ${location.id === 'cafe' ? 'restoration-cafe-shell' : 'restoration-portrait-shell'}" style="--repair-accent:${film.accent};--restoration-design-color:${chosen?.color || film.accent};--restoration-backdrop:url('${art}')">${restorationHudMarkupLegacy(location.id)}<header class="restoration-topbar"><button class="restoration-back" type="button" data-visit-close>‹ <span>Board</span></button><div class="restoration-location-title"><small>YOUR HARBOR · ${level} IMPROVEMENTS</small><b>${location.icon} ${location.name}</b></div><span class="restoration-step-count">${level} / ${location.decos.length}</span></header><div class="restoration-world ${location.id === 'cafe' ? 'cafe-isometric-world' : 'restoration-portrait-world'} ${location.id === 'cafe' && level <= 5 ? 'cafe-interior' : ''} ${location.id === 'cafe' && level === 6 ? 'cafe-kitchen' : ''}" data-phase="complete" data-location="${location.id}" role="group" aria-label="Restored ${location.name} with your saved design"><div class="restoration-art-frame"><div class="restoration-art-canvas"><img class="restoration-world-before" src="${art}" alt=""><img class="restoration-world-after" src="${art}" alt="${location.name}, restored"><div class="restoration-world-shade" aria-hidden="true"></div><div class="restoration-design-preview has-design"><span>${chosen?.icon || location.decos[level - 1]}</span><small>${chosen?.name || 'A harbor improvement'}</small></div><div class="restoration-progress-dots">${location.decos.map((deco,index)=>`<span class="${index < level ? 'built' : 'locked-deco'}">${deco}</span>`).join('')}</div></div></div><main class="restoration-bottom"><div class="restoration-card visit-card"><small class="restoration-kicker">A PLACE MADE BY THE HARBOR</small><h2>${location.name} feels like home.</h2><p>${chosen ? `Your ${chosen.name.toLowerCase()} finish is part of the scene.` : `${level} of ${location.decos.length} improvements are complete.`}</p><div class="location-style-history">${Object.entries(styles).map(([key,value])=>`<span>${key.replaceAll('-',' ')} · <b>${String(value).replaceAll('-',' ')}</b></span>`).join('') || `<span>${location.decos.slice(0,level).join('  ')}</span>`}</div><button class="btn restoration-action" type="button" data-visit-close>Back to the harbor board</button></div></main>${restorationNavMarkupLegacy(location.id)}</div>`;
+  overlay.innerHTML = `<div class="restoration-shell restoration-visit ${location.id === 'cafe' ? 'restoration-cafe-shell' : 'restoration-portrait-shell'}" style="--repair-accent:${film.accent};--restoration-design-color:${chosen?.color || film.accent};--restoration-backdrop:url('${art}')">${restorationHudMarkupLegacy(location.id)}<header class="restoration-topbar"><button class="restoration-back" type="button" data-visit-close>‹ <span>Board</span></button><div class="restoration-location-title"><small>YOUR HARBOR · ${level} IMPROVEMENTS</small><b>${location.icon} ${location.name}</b></div><span class="restoration-step-count">${level} / ${location.decos.length}</span></header><div class="restoration-world ${location.id === 'cafe' ? 'cafe-isometric-world' : 'restoration-portrait-world'} ${location.id === 'cafe' && level <= 5 ? 'cafe-interior' : ''} ${location.id === 'cafe' && level === 6 ? 'cafe-kitchen' : ''}" data-phase="complete" data-location="${location.id}" role="group" aria-label="Restored ${location.name} with your saved design"><div class="restoration-art-frame"><div class="restoration-art-canvas"><img class="restoration-world-before restoration-world-plate${plateClassSuffix}" src="${art}" alt="${location.name}, restored" style="${plateStyle}" data-frame-width="${plateFrame.w}" data-frame-height="${plateFrame.h}">${floorTintMarkup}<div class="restoration-world-shade" aria-hidden="true"></div><div class="restoration-design-preview has-design"><span>${chosen?.icon || location.decos[level - 1]}</span><small>${chosen?.name || 'A harbor improvement'}</small></div><div class="restoration-progress-dots">${location.decos.map((deco,index)=>`<span class="${index < level ? 'built' : 'locked-deco'}">${deco}</span>`).join('')}</div></div></div><main class="restoration-bottom"><div class="restoration-card visit-card"><small class="restoration-kicker">A PLACE MADE BY THE HARBOR</small><h2>${location.name} feels like home.</h2><p>${chosen ? `Your ${chosen.name.toLowerCase()} finish is part of the scene.` : `${level} of ${location.decos.length} improvements are complete.`}</p><div class="location-style-history">${Object.entries(styles).map(([key,value])=>`<span>${key.replaceAll('-',' ')} · <b>${String(value).replaceAll('-',' ')}</b></span>`).join('') || `<span>${location.decos.slice(0,level).join('  ')}</span>`}</div><button class="btn restoration-action" type="button" data-visit-close>Back to the harbor board</button></div></main>${restorationNavMarkupLegacy(location.id)}</div>`;
   document.body.appendChild(overlay);
   let visitHudTimer = 0;
   const exitVisit = (boardKey = 'main') => {
@@ -2974,7 +3322,7 @@ function claimDailyGift() {
 
 function showMoreMenu() {
   const boardLabel = currentBoardKey === 'main' ? '🏖️ Open the picnic board' : '⚓ Return to the town board';
-  showModal(`<div class="sheet-heading"><div><div class="story-kicker">HARBOR MENU</div><h2>More</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><p class="menu-balance">💎 ${state.pearls} pearls</p><div class="quick-menu"><button class="btn menu-board">${boardLabel}</button><button class="btn menu-inventory">🧺 Inventory</button><button class="btn menu-collection">📚 Item collection</button><button class="btn menu-journal">📖 Story journal & repairs</button><button class="btn menu-goals">🧭 Daily goals & gift</button><button class="btn menu-guide">❔ How to play</button></div>`, modal => {
+  showModal(`<div class="sheet-heading"><div><div class="story-kicker">HARBOR MENU</div><h2>More</h2></div><button class="btn close-sheet" aria-label="Close">✕</button></div><p class="menu-balance">💎 ${state.pearls} pearls</p><div class="quick-menu"><button class="btn menu-board">${boardLabel}</button><button class="btn menu-inventory">🧺 Inventory</button><button class="btn menu-collection">📚 Item collection</button><button class="btn menu-journal">📖 Story journal & repairs</button><button class="btn menu-goals">🧭 Daily goals & gift</button><button class="btn menu-guide">❔ How to play</button><button class="btn menu-restart">🔄 Start story over…</button></div>`, modal => {
     modal.querySelector('.close-sheet').onclick = () => modal.remove();
     modal.querySelector('.menu-board').onclick = () => {
       modal.remove();
@@ -2988,6 +3336,7 @@ function showMoreMenu() {
     modal.querySelector('.menu-journal').onclick = () => { modal.remove(); showStory(); };
     modal.querySelector('.menu-goals').onclick = () => { modal.remove(); showProgress('daily'); };
     modal.querySelector('.menu-guide').onclick = () => { modal.remove(); showGuide(); };
+    modal.querySelector('.menu-restart').onclick = () => { modal.remove(); showResetConfirmation(); };
   });
 }
 
@@ -3144,6 +3493,7 @@ function render() {
   container.querySelector('#more-nav').onclick = showMoreMenu;
   saveState();
   refreshTutorial();
+  pumpCompletionQueue();
 }
 
 function tickEnergy() {
@@ -3188,5 +3538,6 @@ window.setInterval(() => {
     }
   }
   if (hasCooldown && !drag) render();
+  pumpCompletionQueue();
 }, 1000);
 window.ProgressLogger?.logProgress?.('game_start', {});
