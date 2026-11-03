@@ -1,4 +1,4 @@
-const CACHE_NAME = 'harbor-whispers-v68';
+const CACHE_NAME = 'harbor-whispers-v69';
 const APP_FILES = [
   './',
   './index.html',
@@ -41,6 +41,16 @@ const APP_FILES = [
   './assets/restore-pier-7.webp',
   './assets/restore-pier-8.webp',
   './assets/restore-gazette-scene.webp',
+  './assets/restore-cafe-plates.webp',
+  './assets/restore-pier-plates.webp',
+  './assets/restore-garden-plates.webp',
+  './assets/restore-gazette-plates.webp',
+  './assets/restore-market-plates.webp',
+  './assets/restore-lighthouse-plates.webp',
+  './assets/restore-workshop-plates.webp',
+  './assets/restore-archive-plates.webp',
+  './assets/restore-wharf-plates.webp',
+  './assets/restore-festival-plates.webp',
   './assets/restore-market-square.webp',
   './assets/restore-lighthouse-yard.webp',
   './assets/restore-workshop-yard.webp',
