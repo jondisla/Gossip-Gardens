@@ -1,40 +1,23 @@
 /*
- * Preserve browser input events for game handlers while suppressing native
- * browser actions that do not belong on a game surface.
+ * Game text should not behave like webpage content, while editable and
+ * intentionally copyable controls retain native browser behavior.
  */
 
-(() => {
-  const browserContextMenuSelector = [
-    "input",
-    "textarea",
-    "select",
-    '[contenteditable]:not([contenteditable="false"])',
-    '[role="textbox"]',
-    "[data-allow-browser-context-menu]",
-  ].join(", ");
+:where(html) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
 
-  document.addEventListener(
-    "contextmenu",
-    (event) => {
-      const target = event.target;
+:where(
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable="false"]),
+  [role="textbox"],
+  [data-allow-text-selection],
+  [data-allow-text-selection] *
+) {
+  -webkit-user-select: text;
+  user-select: text;
+}
 
-      if (
-        target instanceof Element &&
-        target.closest(browserContextMenuSelector)
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-    },
-    { capture: true },
-  );
-
-  document.addEventListener(
-    "dragstart",
-    (event) => {
-      event.preventDefault();
-    },
-    { capture: true },
-  );
-})();
