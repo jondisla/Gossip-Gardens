@@ -2711,3 +2711,265 @@
   .restoration-repair-screen .repair-cost-bubble > img { width: 27px; height: 27px; }
 }
 
+/* A restoration state is one atlas-cropped full plate; no patch art is layered
+   over it. Only the in-world target marker, actors, and temporary work effects
+   sit above the plate. */
+.restoration-world-plate,
+.restoration-world-reveal {
+  position: absolute !important;
+  z-index: 0;
+  top: var(--plate-atlas-top) !important;
+  left: var(--plate-atlas-left) !important;
+  right: auto !important;
+  bottom: auto !important;
+  display: block;
+  width: var(--plate-atlas-width) !important;
+  height: var(--plate-atlas-height) !important;
+  max-width: none !important;
+  object-fit: fill !important;
+  object-position: left top !important;
+  filter: none !important;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+/* The selected cumulative plate remains visible. The temporary repair reveal
+   keeps its animated opacity and circular clip so the work reads as a change. */
+.restoration-world-plate { opacity: 1 !important; clip-path: none !important; transform: none !important; }
+.restoration-world-reveal { opacity: 0; }
+.restoration-repair-screen .restoration-art-canvas { background: #d6e7dc; transition: transform .35s cubic-bezier(.2,.75,.25,1); }
+.restoration-repair-screen .restoration-art-canvas > .restoration-world-plate { z-index: 0; }
+.restoration-repair-screen .restoration-art-canvas > .restoration-world-reveal {
+  z-index: 1;
+  opacity: 0;
+  clip-path: circle(0 at var(--repair-mask-x, 50%) var(--repair-mask-y, 50%));
+  animation: repair-circle-reveal .5s cubic-bezier(.2,.72,.25,1) .75s both;
+}
+@keyframes repair-circle-reveal {
+  from { opacity: .92; clip-path: circle(0 at var(--repair-mask-x, 50%) var(--repair-mask-y, 50%)); }
+  to { opacity: 1; clip-path: circle(var(--repair-mask-radius, 520px) at var(--repair-mask-x, 50%) var(--repair-mask-y, 50%)); }
+}
+.restoration-repair-screen .repair-stage-actor { width: 3.4%; height: 6%; }
+.restoration-repair-screen .repair-stage-actor > i { filter: blur(3px); }
+
+/* A single quiet top row keeps the repair price and artwork unobstructed. */
+.restoration-repair-screen .restoration-story-progress,
+.restoration-repair-screen .restoration-edge-actions { display: none !important; }
+.restoration-repair-screen .repair-subcontrols > .restoration-back,
+.restoration-repair-screen .restoration-hud-utilities > button {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: #fffdf4;
+  filter: drop-shadow(0 1px 3px #26382f);
+}
+.restoration-repair-screen .repair-subcontrols > .restoration-back { font-size: 29px; }
+.restoration-repair-screen .restoration-hud-utilities > button { font-size: 20px; }
+.restoration-repair-screen .restoration-nav {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.restoration-repair-screen .restoration-nav > button {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #fffdf4;
+  text-shadow: 0 1px 4px #243b35;
+  filter: drop-shadow(0 1px 2px #243b35aa);
+}
+.restoration-repair-screen .restoration-nav > button.active {
+  background: transparent;
+  box-shadow: none;
+  color: #ffe293;
+}
+.restoration-repair-screen .restoration-nav > button.active::after {
+  position: absolute;
+  right: 28%;
+  bottom: 1px;
+  left: 28%;
+  height: 2px;
+  border-radius: 2px;
+  background: #ffe293;
+  content: '';
+}
+
+.restoration-repair-screen .repair-hotspot-marker {
+  position: absolute;
+  z-index: 900;
+  top: var(--repair-hit-y);
+  left: var(--repair-hit-x);
+  display: block;
+  width: var(--repair-hit-width);
+  height: var(--repair-hit-height);
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #634722;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  touch-action: manipulation;
+  animation: none;
+}
+.restoration-repair-screen .repair-hotspot-marker::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 88px;
+  height: 88px;
+  border: 5px solid #fff0a6;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px #e3ad43a6, 0 0 22px 7px #ffe2879c;
+  content: '';
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(var(--camera-counter-zoom, 1));
+  animation: repair-target-ring 1.15s ease-in-out infinite alternate;
+}
+.restoration-repair-screen .repair-hotspot-marker:focus-visible { outline: 4px solid #3f8a82; outline-offset: 5px; }
+.restoration-repair-screen .repair-hotspot-marker.unaffordable { filter: saturate(.72); }
+.restoration-repair-screen .repair-cost-bubble {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: max-content;
+  min-width: 114px;
+  min-height: 64px;
+  padding: 6px 10px;
+  overflow: visible;
+  border: 3px solid #fffdf4;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #fff6cc, #efbd50);
+  box-shadow: 0 4px 0 #a77735, 0 6px 16px #47362966, 0 0 0 5px #ffed9a7a;
+  color: #654923;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 1000;
+  line-height: 1;
+  text-shadow: 0 1px 0 #fff8dc;
+  transform: translate(-50%, -112%) scale(var(--camera-counter-zoom, 1));
+  transform-origin: center bottom;
+  cursor: pointer;
+  touch-action: manipulation;
+  animation: repair-bubble-arrive .35s cubic-bezier(.2,.8,.25,1.18) both, repair-bubble-glow 1.8s ease-in-out .4s infinite alternate;
+}
+.restoration-repair-screen .repair-cost-bubble::before {
+  position: absolute;
+  inset: -24px -18px;
+  border-radius: 48px;
+  content: '';
+  pointer-events: auto;
+}
+.restoration-repair-screen .repair-cost-bubble .repair-bubble-tool { font-size: 22px; line-height: 1; }
+.restoration-repair-screen .repair-cost-bubble > img { width: 24px; height: 24px; object-fit: contain; }
+.restoration-repair-screen .repair-cost-bubble > b { font-size: 17px; font-weight: 1000; }
+.restoration-repair-screen .repair-cost-bubble > i {
+  position: absolute;
+  bottom: -7px;
+  left: calc(50% - 7px);
+  width: 12px;
+  height: 12px;
+  border-right: 3px solid #fffdf4;
+  border-bottom: 3px solid #fffdf4;
+  background: #efbd50;
+  transform: rotate(45deg);
+}
+@keyframes repair-bubble-arrive {
+  from { opacity: 0; transform: translate(-50%, -92%) scale(calc(var(--camera-counter-zoom, 1) * .8)); }
+  to { opacity: 1; transform: translate(-50%, -112%) scale(var(--camera-counter-zoom, 1)); }
+}
+@keyframes repair-target-ring { from { opacity: .55; } to { opacity: 1; box-shadow: 0 0 0 8px #e3ad4370, 0 0 27px 11px #ffe287ba; } }
+.restoration-repair-screen .repair-action-fx {
+  position: absolute;
+  z-index: 820;
+  top: var(--repair-target-y);
+  left: var(--repair-target-x);
+  width: 94px;
+  height: 94px;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(var(--camera-counter-zoom, 1));
+}
+.restoration-repair-screen .repair-action-fx > span {
+  position: absolute;
+  top: -15px;
+  right: -16px;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 3px solid white;
+  border-radius: 50%;
+  background: linear-gradient(#fff9e8, #f1c15e);
+  box-shadow: 0 3px 0 #a77735, 0 5px 10px #47362955;
+  font-size: 30px;
+  animation: repair-hammer-bounce .42s cubic-bezier(.2,.8,.25,1.2) infinite alternate;
+}
+.restoration-repair-screen .repair-action-fx > i { position: absolute; color: #fff4a8; font-size: 24px; font-style: normal; text-shadow: 0 1px 4px #9a713b; animation: repair-dust-pop .55s ease-out infinite; }
+.restoration-repair-screen .repair-action-fx > i:nth-of-type(1) { top: 4px; left: -13px; }
+.restoration-repair-screen .repair-action-fx > i:nth-of-type(2) { right: 1px; bottom: -6px; animation-delay: -.25s; }
+.restoration-repair-screen .repair-action-fx > i:nth-of-type(3) { bottom: 12px; left: -10px; animation-delay: -.4s; }
+@keyframes repair-hammer-bounce { to { transform: translateY(-7px) rotate(13deg); } }
+@keyframes repair-dust-pop { 0% { opacity: 0; transform: scale(.45) translateY(6px); } 45% { opacity: 1; } 100% { opacity: 0; transform: scale(1.15) translateY(-10px); } }
+.restoration-repair-screen .repair-toast {
+  top: auto;
+  right: auto;
+  bottom: calc(env(safe-area-inset-bottom) + 74px);
+  left: 14px;
+  min-width: 0;
+  padding: 9px 15px;
+  font-size: 16px;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .restoration-repair-screen .restoration-world-reveal { animation-duration: .01ms; }
+  .restoration-repair-screen .repair-hotspot-marker::before,
+  .restoration-repair-screen .repair-action-fx > span,
+  .restoration-repair-screen .repair-action-fx > i { animation: none !important; }
+}
+
+/* Standalone café stage artwork is not an atlas crop. Fit its actual image
+   inside the art plane so the windows, tables and room proportions stay intact. */
+.restoration-repair-screen .restoration-art-canvas > .restoration-world-direct-plate,
+.restoration-cafe-screen .restoration-art-canvas > .restoration-world-direct-plate {
+  inset: auto !important;
+  top: 0 !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  object-fit: contain !important;
+  object-position: center !important;
+}
+.restoration-scene-screen.restoration-cafe-screen.restoration-direct-cafe-stage {
+  background: linear-gradient(180deg, #dceee4 0%, #e4eddb 55%, #e8d8b7 100%) !important;
+}
+.restoration-direct-cafe-stage .restoration-cafe-shell {
+  background: linear-gradient(180deg, #dceee4 0%, #e4eddb 55%, #e8d8b7 100%) !important;
+}
+.restoration-art-canvas > .cafe-floor-tint {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: .3;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+.cafe-floor-tint path { fill: var(--cafe-floor-tone, #d9a75f); }
+
