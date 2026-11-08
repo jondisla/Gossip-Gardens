@@ -1,25 +1,60 @@
-// Artwork-space actor placement for the repair scenes. Feet coordinates are
-// normalized to the full portrait plate so characters stay grounded as the
-// camera pans and zooms.
-const GARDEN_CAST = [
-  [{id:'iris',x:18,feetY:52},{id:'mae',x:80,feetY:57},{id:'theo',x:65,feetY:48}],
-  [{id:'iris',x:18,feetY:55},{id:'mae',x:80,feetY:60},{id:'theo',x:64,feetY:49}],
-  [{id:'iris',x:21,feetY:57},{id:'mae',x:79,feetY:61},{id:'theo',x:66,feetY:50}],
-  [{id:'iris',x:19,feetY:58},{id:'mae',x:81,feetY:62},{id:'theo',x:67,feetY:51}],
-  [{id:'iris',x:19,feetY:58},{id:'mae',x:81,feetY:62},{id:'theo',x:67,feetY:51}],
-  [{id:'iris',x:16,feetY:60},{id:'mae',x:83,feetY:64},{id:'theo',x:66,feetY:53}],
-  [{id:'iris',x:17,feetY:58},{id:'mae',x:82,feetY:64},{id:'theo',x:67,feetY:52}],
-  [{id:'iris',x:16,feetY:59},{id:'mae',x:83,feetY:64},{id:'theo',x:66,feetY:53}]
-];
-
-const REPAIR_ACTORS = Object.freeze({
-  iris: 'assets/repair-iris-fullbody.webp',
-  mae: 'assets/repair-mae-fullbody.webp',
-  theo: 'assets/repair-theo-fullbody.webp'
+// Restoration characters use only full-body worksite sprites; portraits stay in dialogue and request UI.
+export const RESTORATION_CAST = Object.freeze({
+  cafe:['mae','tamsin'], pier:['theo','milo'], garden:['jules','selene'], office:['iris','nora'],
+  market:['adrian','tamsin'], lighthouse:['cora','theo'], workshop:['rowan','milo'],
+  archive:['nora','selene'], wharf:['milo','cora'], festival:['mae','jules']
 });
 
-export function restorationCastFor(locationId, level) {
-  if (locationId !== 'garden') return [];
-  const actors = GARDEN_CAST[Math.max(0, Math.min(GARDEN_CAST.length - 1, Number(level) - 1))] || [];
-  return actors.map(actor => ({...actor, src:REPAIR_ACTORS[actor.id]}));
+const REPAIR_ACTORS = Object.freeze({
+  iris:'assets/repair-iris-fullbody.webp', mae:'assets/repair-mae-fullbody.webp',
+  rowan:'assets/repair-rowan-fullbody.webp', theo:'assets/repair-theo-fullbody.webp',
+  cora:'assets/repair-cora-fullbody.webp', jules:'assets/repair-jules-fullbody.webp',
+  adrian:'assets/repair-adrian-fullbody.webp', nora:'assets/repair-nora-fullbody.webp',
+  milo:'assets/repair-milo-fullbody.webp', selene:'assets/repair-selene-fullbody.webp',
+  tamsin:'assets/repair-tamsin-fullbody.webp'
+});
+
+// Adult height is calibrated per location; Milo uses the child scale below.
+export const ACTOR_SCALE = Object.freeze({
+  cafe:.21, pier:.20, garden:.21, office:.20, market:.21,
+  lighthouse:.20, workshop:.21, archive:.20, wharf:.20, festival:.21
+});
+const CHILD_ACTOR_SCALE = .16;
+const INDOOR_LOCATIONS = new Set(['cafe','office','lighthouse','workshop','archive']);
+const POSITIONS = Object.freeze({
+  cafe:[[.16,.82],[.84,.82]], pier:[[.37,.84],[.64,.84]], garden:[[.15,.79],[.85,.79]],
+  office:[[.16,.77],[.84,.77]], market:[[.15,.79],[.85,.79]], lighthouse:[[.17,.78],[.83,.78]],
+  workshop:[[.16,.79],[.84,.79]], archive:[[.16,.78],[.84,.78]], wharf:[[.31,.83],[.70,.83]],
+  festival:[[.15,.80],[.85,.80]]
+});
+
+const ACTOR_STAGES = Object.freeze(Object.fromEntries(Object.entries(RESTORATION_CAST).map(([locationId,cast]) => [
+  locationId,
+  Array.from({length:8},(_,stepIndex) => cast.map((id,index) => {
+    const [baseX,baseY] = POSITIONS[locationId]?.[index] || [index ? .84 : .16,.78];
+    const sideShift = ((stepIndex % 3) - 1) * .012;
+    const feetShift = ((stepIndex + index) % 2) * .008;
+    return {
+      id,
+      x:Math.max(.08,Math.min(.92,baseX + (index === 0 ? sideShift : -sideShift))),
+      feetY:Math.max(.70,Math.min(.88,baseY + feetShift)),
+      heightScale:id === 'milo' ? CHILD_ACTOR_SCALE : ACTOR_SCALE[locationId] || .12
+    };
+  }))
+])));
+
+const reportedMissing = new Set();
+export function restorationCastFor(locationId, step) {
+  const actors = ACTOR_STAGES[locationId]?.[Math.max(0,Math.min(7,Math.floor(Number(step) || 1) - 1))] || [];
+  return actors.flatMap(actor => {
+    const src = REPAIR_ACTORS[actor.id];
+    if (!src) {
+      if (!reportedMissing.has(actor.id)) {
+        reportedMissing.add(actor.id);
+        console.error(`[Harbor Whispers] Missing full-body restoration sprite for ${actor.id}; actor skipped.`);
+      }
+      return [];
+    }
+    return [{...actor,src}];
+  });
 }
