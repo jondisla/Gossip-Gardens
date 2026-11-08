@@ -2156,8 +2156,8 @@
   box-shadow: none;
   transform: translate(var(--camera-x, 0px), var(--camera-y, 0px)) scale(var(--camera-zoom, 1));
   transform-origin: 0 0;
-  transition: transform .12s ease-out;
-  will-change: transform;
+  transition: none;
+  will-change: auto;
 }
 .restoration-repair-screen .restoration-art-canvas > .restoration-world-before,
 .restoration-repair-screen .restoration-art-canvas > .restoration-world-after {
@@ -2736,7 +2736,7 @@
    keeps its animated opacity and circular clip so the work reads as a change. */
 .restoration-world-plate { opacity: 1 !important; clip-path: none !important; transform: none !important; }
 .restoration-world-reveal { opacity: 0; }
-.restoration-repair-screen .restoration-art-canvas { background: #d6e7dc; transition: transform .35s cubic-bezier(.2,.75,.25,1); }
+.restoration-repair-screen .restoration-art-canvas { background: linear-gradient(180deg, #b9e3e4 0%, #c8e5d9 52%, #dfc69a 100%); transition: transform .35s cubic-bezier(.2,.75,.25,1); }
 .restoration-repair-screen .restoration-art-canvas > .restoration-world-plate { z-index: 0; }
 .restoration-repair-screen .restoration-art-canvas > .restoration-world-reveal {
   z-index: 1;
@@ -2972,4 +2972,358 @@
   pointer-events: none;
 }
 .cafe-floor-tint path { fill: var(--cafe-floor-tone, #d9a75f); }
+
+/* Current repair renderer: keep cumulative 9:16 plates undistorted, fit-width,
+   and let the revealed scene replace the prior plate from the repair hotspot. */
+.restoration-scene-screen.restoration-repair-screen .restoration-world .restoration-art-canvas {
+  width: 1000px;
+  height: var(--camera-plane-height, 1777.778px);
+  background: linear-gradient(180deg, #d7e9df, #d7e9df);
+}
+.restoration-repair-screen .restoration-plate-reveal {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  clip-path: circle(0 at var(--repair-mask-x, 50%) var(--repair-mask-y, 50%));
+  pointer-events: none;
+}
+.restoration-repair-screen .restoration-plate-reveal > .restoration-world-after {
+  position: absolute !important;
+  z-index: 0 !important;
+  display: block;
+  filter: none !important;
+  transform: none !important;
+  clip-path: none !important;
+  opacity: 1 !important;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.restoration-repair-screen .restoration-world[data-phase="objective"] .restoration-plate-reveal,
+.restoration-repair-screen .restoration-world[data-phase="work"] .restoration-plate-reveal { opacity: 0; }
+.restoration-repair-screen .restoration-world[data-phase="work"] .restoration-plate-reveal {
+  animation: restoration-plate-work-reveal 1.22s cubic-bezier(.2,.72,.25,1) .32s both;
+}
+.restoration-repair-screen .restoration-world[data-phase="design"] .restoration-plate-reveal,
+.restoration-repair-screen .restoration-world[data-phase="complete"] .restoration-plate-reveal {
+  opacity: 1;
+  clip-path: circle(var(--repair-mask-radius, 160%) at var(--repair-mask-x, 50%) var(--repair-mask-y, 50%));
+}
+@keyframes restoration-plate-work-reveal {
+  0% { opacity: 0; clip-path: circle(0 at var(--repair-mask-x, 50%) var(--repair-mask-y, 50%)); }
+  18% { opacity: 1; }
+  100% { opacity: 1; clip-path: circle(var(--repair-mask-radius, 160%) at var(--repair-mask-x, 50%) var(--repair-mask-y, 50%)); }
+}
+.restoration-repair-screen .repair-stage-actors {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.restoration-repair-screen .repair-stage-actor { width: 9%; height: 17%; }
+.restoration-repair-screen .repair-scene-effects { position: absolute; z-index: 8; inset: 0; pointer-events: none; }
+.restoration-repair-screen .repair-hotspot-marker[hidden] { display: none !important; }
+.restoration-repair-screen .repair-hotspot-marker:not([hidden]) { display: block; }
+.restoration-repair-screen .plate-debug-box {
+  position: absolute;
+  z-index: 1100;
+  border: 2px dashed #ff3b59;
+  background: #ff3b5924;
+  color: #fff;
+  font: 900 11px/1.2 system-ui, sans-serif;
+  text-shadow: 0 1px 3px #222;
+  pointer-events: none;
+}
+.restoration-repair-screen .repair-toast[hidden],
+.restoration-repair-screen .repair-floating-reward[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .restoration-repair-screen .restoration-world[data-phase="work"] .restoration-plate-reveal { animation-duration: .01ms; animation-delay: 0ms; }
+}
+
+/* Revisited locations use a cover-fit plate with a sea-to-sand backing behind transparent cutaway edges. */
+.restoration-scene-screen.restoration-repair-screen.restoration-visit-screen {
+  background: linear-gradient(180deg, #b9e3e4 0%, #c8e5d9 52%, #dfc69a 100%);
+}
+.restoration-scene-screen.restoration-repair-screen.restoration-visit-screen .restoration-world {
+  background: linear-gradient(180deg, #b9e3e4 0%, #c8e5d9 52%, #dfc69a 100%);
+}
+.restoration-scene-screen.restoration-repair-screen.restoration-visit-screen .restoration-art-canvas {
+  top: 0;
+  left: 50%;
+  width: var(--visit-canvas-width, 100vw) !important;
+  height: var(--visit-canvas-height, 177.778vw) !important;
+  background: linear-gradient(180deg, #b9e3e4 0%, #c8e5d9 52%, #dfc69a 100%);
+  transform: translate(-50%, 0) !important;
+  transition: none;
+}
+.restoration-visit-screen .repair-stage-actors { z-index: 5; }
+.restoration-visit-screen .repair-subcontrols > .restoration-back { visibility: hidden; pointer-events: none; }
+.restoration-visit-screen .restoration-topbar { z-index: 19; }
+.restoration-visit-screen .restoration-bottom { max-height: min(28dvh, 240px); }
+.restoration-visit-screen .restoration-visit-card {
+  width: min(100%, 480px);
+  pointer-events: auto;
+  backdrop-filter: blur(6px);
+}
+.restoration-visit-screen .restoration-visit-card .restoration-action { width: 100%; }
+@media (max-width: 360px) {
+  .restoration-visit-screen .restoration-bottom { right: 5px; left: 5px; max-height: min(31dvh, 220px); }
+  .restoration-visit-screen .restoration-visit-card { padding: 7px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .restoration-repair-screen .restoration-world[data-phase="work"] .restoration-plate-reveal { animation: none; clip-path: circle(160% at var(--repair-mask-x, 50%) var(--repair-mask-y, 50%)); opacity: 1; }
+}
+
+/* Headerless, in-world repair presentation: controls float above the plate. */
+.restoration-repair-screen .restoration-story-progress {
+  display: grid !important;
+  top: calc(env(safe-area-inset-top) + 52px);
+  left: 54px;
+  width: min(39vw, 154px);
+  min-height: 38px;
+}
+.restoration-repair-screen .repair-subcontrols { top: calc(env(safe-area-inset-top) + 52px); }
+.restoration-repair-screen .restoration-nav { min-height: 52px; }
+
+/* Full-body neighbors are sized by their authored per-location height. The
+   image remains in its natural ratio and the button's bottom edge is the feet. */
+.restoration-repair-screen .repair-stage-actors {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.restoration-repair-screen .repair-stage-actor {
+  position: absolute;
+  z-index: var(--actor-sort, 1);
+  top: var(--actor-feet, 80%);
+  left: var(--actor-x, 50%);
+  display: block;
+  width: max-content;
+  height: var(--actor-height, 12%);
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  transform: translate(-50%, -100%);
+  transform-origin: 50% 100%;
+  pointer-events: auto;
+  cursor: pointer;
+  animation: none !important;
+  touch-action: manipulation;
+}
+.restoration-repair-screen .repair-stage-actor > img {
+  display: block;
+  width: auto;
+  height: 100%;
+  max-width: none;
+  object-fit: contain;
+  object-position: center bottom;
+  filter: drop-shadow(0 4px 3px #24362b55);
+  animation: none !important;
+  -webkit-user-drag: none;
+}
+.restoration-repair-screen .repair-stage-actor > i {
+  position: absolute;
+  z-index: -1;
+  right: 11%;
+  bottom: 0;
+  left: 11%;
+  height: 2.2%;
+  border-radius: 50%;
+  background: #23302759;
+  filter: blur(4px);
+  pointer-events: none;
+}
+.restoration-repair-screen .repair-stage-actor:focus-visible {
+  outline: 3px solid #fff0a6;
+  outline-offset: 2px;
+}
+.restoration-repair-screen .repair-actor-speech {
+  position: absolute;
+  z-index: 1000;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  display: block;
+  width: min(260px, 48vw);
+  max-width: 48vw;
+  padding: 9px 12px;
+  border: 2px solid #fff;
+  border-radius: 17px 17px 17px 5px;
+  background: #fffaf0f2;
+  box-shadow: 0 3px 0 #b89a70, 0 5px 12px #263a3652;
+  color: #5f5664;
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 5px) scale(.95);
+  transform-origin: center bottom;
+  transition: opacity .2s ease, transform .2s ease, visibility .2s;
+  pointer-events: none;
+}
+.restoration-repair-screen .repair-actor-speech::after {
+  position: absolute;
+  bottom: -7px;
+  left: calc(50% - 6px);
+  width: 11px;
+  height: 11px;
+  border-right: 2px solid white;
+  border-bottom: 2px solid white;
+  background: #fffaf0;
+  content: '';
+  transform: rotate(45deg);
+}
+.restoration-repair-screen .repair-stage-actor.speaking { z-index: 1001; }
+.restoration-repair-screen .repair-stage-actor.speaking .repair-actor-speech {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0) scale(1);
+}
+
+/* The only work effects are a short tool-and-spark burst; idle actors stay still. */
+.restoration-repair-screen .restoration-ambient {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 48% 50%, #fff6c314 0%, transparent 50%), linear-gradient(115deg, #fff7df09, transparent 42%, #f4e9c710);
+  opacity: .52;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+.restoration-repair-screen .restoration-ambient::before,
+.restoration-repair-screen .restoration-ambient::after {
+  position: absolute;
+  inset: -15%;
+  background: radial-gradient(circle at 23% 34%, #fff8cf99 0 2px, transparent 4px), radial-gradient(circle at 67% 58%, #fff8cf88 0 2px, transparent 4px), radial-gradient(circle at 82% 23%, #fff8cf77 0 1.5px, transparent 4px);
+  content: '';
+  opacity: .22;
+  animation: repair-ambient-shimmer 8s ease-in-out infinite alternate;
+}
+.restoration-repair-screen .restoration-ambient::after { transform: translate(7%, 4%); animation-delay: -4s; opacity: .16; }
+.restoration-repair-screen .repair-scene-effects { position: absolute; z-index: 8; inset: 0; overflow: visible; pointer-events: none; }
+.restoration-repair-screen .repair-scene-effects .repair-action-fx,
+.restoration-repair-screen .repair-scene-effects .repair-sparkle-burst { visibility: hidden; opacity: 0; }
+.restoration-repair-screen .repair-scene-effects.is-working .repair-action-fx {
+  visibility: visible;
+  animation: repair-work-burst 1.2s ease-out both;
+}
+.restoration-repair-screen .repair-scene-effects.is-working .repair-sparkle-burst {
+  visibility: visible;
+  animation: repair-sparkle-burst 1.05s ease-out .1s both;
+}
+.restoration-repair-screen .repair-sparkle-burst {
+  position: absolute;
+  top: var(--repair-target-y, 50%);
+  left: var(--repair-target-x, 50%);
+  color: #fff5aa;
+  font-size: 30px;
+  font-weight: 1000;
+  text-shadow: 0 2px 6px #8a6534;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+.restoration-repair-screen .repair-cost-bubble.unaffordable {
+  border-color: #fff5ee;
+  background: linear-gradient(145deg, #ffe3d8, #ed9c84);
+  color: #913f34;
+  text-shadow: 0 1px 0 #fff7ee;
+  filter: none;
+  box-shadow: 0 4px 0 #a45a4a, 0 6px 16px #47362966, 0 0 0 5px #ffbca47a;
+}
+.restoration-repair-screen .repair-cost-bubble.unaffordable > b { color: #9e352e; }
+.restoration-repair-screen .repair-hotspot-marker.unaffordable { filter: none; }
+.restoration-repair-screen .repair-purchase-preview {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  overflow: hidden;
+  opacity: .6;
+  clip-path: inset(0);
+  pointer-events: none;
+}
+.restoration-repair-screen .repair-purchase-preview[hidden] { display: none !important; }
+.restoration-repair-screen .repair-purchase-preview-image {
+  position: absolute;
+  z-index: 0;
+  display: block;
+  max-width: none;
+  object-fit: fill;
+  object-position: left top;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.restoration-repair-screen .repair-choice-crop {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--choice-color, #e5b66b) 42%, #e8efe2);
+}
+.restoration-repair-screen .repair-choice-plate {
+  position: absolute;
+  max-width: none;
+  object-fit: fill;
+  object-position: left top;
+}
+.restoration-repair-screen .repair-choice-crop > i {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 17px;
+  height: 17px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--choice-color, #e5b66b);
+  box-shadow: 0 2px 4px #3d392b66;
+}
+.restoration-repair-screen .repair-toast.location-complete {
+  top: 50%;
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  min-width: min(84vw, 340px);
+  max-width: 90vw;
+  padding: 14px 19px;
+  border-color: #fff;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #fff9df, #d9f2c7);
+  box-shadow: 0 5px 0 #74a366, 0 0 0 5px #fff9, 0 12px 26px #24382d77;
+  color: #456c47;
+  font-size: clamp(20px, 5.5vw, 29px);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  animation: repair-location-arrive .55s cubic-bezier(.18,.8,.25,1.15) both, repair-location-glow 1.4s ease-in-out .55s infinite alternate;
+}
+@keyframes repair-ambient-shimmer { from { background-position: 0 0, 0 0, 0 0; opacity: .12; } to { background-position: 20px -12px, -14px 18px, 12px 9px; opacity: .38; } }
+@keyframes repair-work-burst { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.72); } 18% { opacity: 1; } 78% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.12); } }
+@keyframes repair-sparkle-burst { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.7); } 35% { opacity: .95; } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); } }
+@keyframes repair-location-arrive { from { opacity: 0; transform: translate(-50%, -44%) scale(.86); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes repair-location-glow { to { box-shadow: 0 5px 0 #74a366, 0 0 0 8px #fff5, 0 12px 30px #24382d99; } }
+@media (max-width: 360px) {
+  .restoration-repair-screen .restoration-story-progress { left: 49px; width: min(38vw, 135px); }
+  .restoration-repair-screen .repair-actor-speech { width: min(230px, 54vw); max-width: 54vw; padding: 7px 9px; font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .restoration-repair-screen .restoration-ambient::before,
+  .restoration-repair-screen .restoration-ambient::after,
+  .restoration-repair-screen .repair-scene-effects.is-working .repair-action-fx,
+  .restoration-repair-screen .repair-scene-effects.is-working .repair-sparkle-burst,
+  .restoration-repair-screen .repair-toast.location-complete { animation: none !important; }
+  .restoration-repair-screen .repair-actor-speech { transition-duration: .01ms; }
+}
 
