@@ -1,7 +1,7 @@
 // Harbor Whispers — original harbor-town merge adventure. The save key is intentionally stable.
 import { FAMILIES, MAIN_FAMILIES, GENERATOR_DEFS, CHARS, REQUEST_NOTES, CHAPTER_EXPANSION, TASK_TEMPLATES, DAILY_OBJECTIVES, BOOSTERS } from './game-content.js';
-import { repairDetailState, repairDesignArtMarkup } from './repair-details.js';
-import { restorationCastFor } from './scenes.js';
+import { repairDetailState, REGIONS } from './repair-details.js';
+import { RESTORATION_CAST, restorationCastFor } from './scenes.js';
 const GEN_CHARGES = 12;
 const GEN_COOLDOWN_MS = 20_000;
 const MERGE_ENERGY_COST = 1;
@@ -262,11 +262,6 @@ const RESTORATION_DESIGNS = {
   }
 };
 
-const RESTORATION_CAST = {
-  cafe:['mae','rowan','iris'], pier:['theo','cora','milo'], garden:['jules','mae','selene'], office:['iris','nora','rowan'],
-  market:['adrian','mae','jules'], lighthouse:['cora','theo','milo'], workshop:['rowan','milo','theo'],
-  archive:['nora','iris','cora'], wharf:['theo','milo','rowan'], festival:['mae','jules','tamsin']
-};
 const RESTORATION_DIALOGUE = {
   cafe:[['mae','The storm left its mark, but this café is still ours.'],['rowan','I’ve checked the frame. We can make this safe, one careful repair at a time.'],['mae','Then let’s build a place where everyone has a seat.']],
   pier:[['theo','The boards are rough, but I can hear the harbor waking up already.'],['cora','A steady hand and a few neighbors will see it right.'],['theo','Let’s give the tide a pier worth coming home to.']],
@@ -586,7 +581,9 @@ function loadState() {
     migrated.dailyObjectives = Array.isArray(saved.dailyObjectives) && migrated.dailyDay === dailyDateKey() ? saved.dailyObjectives.map(objective => ({...objective, progress:Math.max(0,Number(objective.progress)||0), claimed:Boolean(objective.claimed), reward:{...(objective.reward||{})}})) : makeDailyObjectives();
     migrated.storyChores = saved.storyChores && typeof saved.storyChores === 'object' && !Array.isArray(saved.storyChores) ? saved.storyChores : {};
     migrated.storyMoments = Array.isArray(saved.storyMoments) ? saved.storyMoments.filter(moment => moment && Array.isArray(moment.lines)).slice(-10) : [];
-    migrated.completionQueue = Array.isArray(saved.completionQueue) ? saved.completionQueue.filter(event => event && typeof event === 'object' && typeof event.kind === 'string' && typeof event.id === 'string').slice(0, 60) : [];
+    const savedCompletions = Array.isArray(saved.completionQueue) ? saved.completionQueue.filter(event => event && typeof event === 'object' && typeof event.kind === 'string' && typeof event.id === 'string') : [];
+    const visibleCompletionKinds = new Set(['restoration','area','epilogue']);
+    migrated.completionQueue = savedCompletions.filter(event => visibleCompletionKinds.has(event.kind) && !(event.kind === 'area' && savedCompletions.some(other => other.kind === 'restoration' && other.locationName === event.locationName && other.progress === event.progress))).slice(0, 20);
     migrated.completionSequence = Math.max(0, Math.floor(Number(saved.completionSequence) || 0));
     migrated.completionMilestones = saved.completionMilestones && typeof saved.completionMilestones === 'object' && !Array.isArray(saved.completionMilestones) ? saved.completionMilestones : {};
     migrated.dailyStreak = Math.max(0, Number(saved.dailyStreak) || 0);
@@ -639,7 +636,7 @@ function loadState() {
           cost:receipt.cost, coinReward:Math.max(0,Math.floor(Number(pending.coinReward) || 20 + level * 5)),
           committed:false, rewardsGranted:false,
           workStartedAt:Math.max(0,Number(pending.workStartedAt) || Date.now()),
-          workDurationMs:Math.max(0,Math.min(5000,Number(pending.workDurationMs) || 1950))
+          workDurationMs:Math.max(0,Math.min(5000,Number(pending.workDurationMs) || 1800))
         };
       } else {
         const receipt = migrated.restorationLedger[key] || {
@@ -653,7 +650,7 @@ function loadState() {
           transactionId:migrated.restorationLedger[key].transactionId,
           cost:Math.max(0,Math.floor(Number(pending.cost ?? receipt.cost) || 0)),
           coinReward:Math.max(0,Math.floor(Number(pending.coinReward) || 20 + level * 5)), committed:true, rewardsGranted:true,
-          workStartedAt:Math.max(0,Number(pending.workStartedAt) || Date.now()), workDurationMs:Math.max(0,Math.min(5000,Number(pending.workDurationMs) || 1950))
+          workStartedAt:Math.max(0,Number(pending.workStartedAt) || Date.now()), workDurationMs:Math.max(0,Math.min(5000,Number(pending.workDurationMs) || 1800))
         };
       }
     } else {
@@ -830,7 +827,8 @@ function saveState() {
 }
 
 function enqueueCompletion(event, milestoneKey = '') {
-  if (!event || !Array.isArray(state.completionQueue)) return null;
+  const popupWorthyKinds = new Set(['restoration','area','epilogue']);
+  if (!event || !popupWorthyKinds.has(event.kind) || !Array.isArray(state.completionQueue)) return null;
   if (milestoneKey && state.completionMilestones?.[milestoneKey]) return null;
   if (milestoneKey) state.completionMilestones[milestoneKey] = true;
   state.completionSequence = Math.max(0, Number(state.completionSequence) || 0) + 1;
@@ -2265,88 +2263,72 @@ function renderLocationStrip() {
   }).join('');
 }
 
-const RESTORATION_PLATE_ATLASES = {
-  cafe: { src:'assets/restore-cafe-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
-  pier: { src:'assets/restore-pier-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
-  garden: { src:'assets/restore-garden-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) },
-  office: { src:'assets/restore-gazette-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) },
-  market: { src:'assets/restore-market-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) },
-  lighthouse: { src:'assets/restore-lighthouse-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
-  workshop: { src:'assets/restore-workshop-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
-  archive: { src:'assets/restore-archive-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) },
-  wharf: { src:'assets/restore-wharf-plates.webp', width:1164, height:1544, frames:Array.from({length:9},(_,index)=>({x:[0,292,584,876][index%4],y:[0,516,1032][Math.floor(index/4)],w:288,h:512})) },
-  festival: { src:'assets/restore-festival-plates-improved.webp', width:1152, height:1536, frames:Array.from({length:9},(_,index)=>({x:(index%4)*288,y:Math.floor(index/4)*512,w:288,h:512})) }
-};
-const RESTORATION_FALLBACK_ART = {
-  cafe:'assets/restore-cafe-room-before.webp',
-  pier:'assets/restore-pier-before.webp',
-  garden:'assets/restore-garden-before.webp',
-  office:'assets/restore-gazette-before.webp',
-  market:'assets/restore-market-square.webp',
-  lighthouse:'assets/restore-lighthouse-yard.webp',
-  workshop:'assets/restore-workshop-yard.webp',
-  archive:'assets/restore-archive-room.webp',
-  wharf:'assets/restore-old-wharf.webp',
-  festival:'assets/restore-festival-plaza.webp'
-};
-
-const CAFE_DIRECT_PLATES = Object.freeze({
-  'assets/restore-cafe-room-0.webp': {width:1152,height:1536},
-  'assets/restore-cafe-room-1.webp': {width:512,height:576},
-  'assets/restore-cafe-room-2.webp': {width:512,height:576},
-  'assets/restore-cafe-room-3.webp': {width:512,height:576},
-  'assets/restore-cafe-room-4.webp': {width:512,height:576},
-  'assets/restore-cafe-room-5.webp': {width:512,height:576},
-  'assets/restore-cafe-kitchen-before.webp': {width:1024,height:768},
-  'assets/restore-cafe-kitchen-after.webp': {width:1024,height:768},
-  'assets/restore-cafe-deck-0.webp': {width:864,height:1536},
-  'assets/restore-cafe-7.webp': {width:864,height:1536},
-  'assets/restore-cafe-deck-8.webp': {width:864,height:1536}
+// Nine cumulative plates per location. Garden and pier already have individual
+// files; the other locations keep per-step URL slots ready for standalone plates
+// and use their matching atlas frame until those files are supplied.
+const PLATES = Object.freeze({
+  cafe:Array.from({length:9},(_,step)=>`assets/restore-cafe-step-${step}.webp`),
+  pier:Array.from({length:9},(_,step)=>`assets/restore-pier-${step}.webp`),
+  garden:Array.from({length:9},(_,step)=>`assets/restore-garden-${step}.webp`),
+  office:Array.from({length:9},(_,step)=>`assets/restore-office-${step}.webp`),
+  market:Array.from({length:9},(_,step)=>`assets/restore-market-${step}.webp`),
+  lighthouse:Array.from({length:9},(_,step)=>`assets/restore-lighthouse-${step}.webp`),
+  workshop:Array.from({length:9},(_,step)=>`assets/restore-workshop-${step}.webp`),
+  archive:Array.from({length:9},(_,step)=>`assets/restore-archive-${step}.webp`),
+  wharf:Array.from({length:9},(_,step)=>`assets/restore-wharf-${step}.webp`),
+  festival:Array.from({length:9},(_,step)=>`assets/restore-festival-${step}.webp`)
 });
+const PLATE_FALLBACKS = Object.freeze({
+  cafe:{src:'assets/restore-cafe-plates.webp',width:1164,height:1544,cellWidth:288,cellHeight:512,gapX:4,gapY:4},
+  pier:{src:'assets/restore-pier-plates.webp',width:1164,height:1544,cellWidth:288,cellHeight:512,gapX:4,gapY:4},
+  garden:{src:'assets/restore-garden-plates-improved.webp',width:1152,height:1536,cellWidth:288,cellHeight:512,gapX:0,gapY:0},
+  office:{src:'assets/restore-gazette-plates-improved.webp',width:1152,height:1536,cellWidth:288,cellHeight:512,gapX:0,gapY:0},
+  market:{src:'assets/restore-market-plates-improved.webp',width:1152,height:1536,cellWidth:288,cellHeight:512,gapX:0,gapY:0},
+  lighthouse:{src:'assets/restore-lighthouse-plates.webp',width:1164,height:1544,cellWidth:288,cellHeight:512,gapX:4,gapY:4},
+  workshop:{src:'assets/restore-workshop-plates.webp',width:1164,height:1544,cellWidth:288,cellHeight:512,gapX:4,gapY:4},
+  archive:{src:'assets/restore-archive-plates-improved.webp',width:1152,height:1536,cellWidth:288,cellHeight:512,gapX:0,gapY:0},
+  wharf:{src:'assets/restore-wharf-plates.webp',width:1164,height:1544,cellWidth:288,cellHeight:512,gapX:4,gapY:4},
+  festival:{src:'assets/restore-festival-plates-improved.webp',width:1152,height:1536,cellWidth:288,cellHeight:512,gapX:0,gapY:0}
+});
+const INDIVIDUAL_PLATE_LOCATIONS = new Set(['pier','garden']);
 
-function restorationPlateAtlas(locationId) {
-  return RESTORATION_PLATE_ATLASES[locationId] || RESTORATION_PLATE_ATLASES.cafe;
+function getPlate(locationId, step) {
+  const index = Math.max(0,Math.min(8,Math.floor(Number(step) || 0)));
+  const candidate = PLATES[locationId]?.[index];
+  if (candidate && INDIVIDUAL_PLATE_LOCATIONS.has(locationId)) return {src:candidate};
+  const fallback = PLATE_FALLBACKS[locationId] || PLATE_FALLBACKS.cafe;
+  const column = index % 4;
+  const row = Math.floor(index / 4);
+  return {
+    src:fallback.src,
+    frame:{x:column * (fallback.cellWidth + fallback.gapX),y:row * (fallback.cellHeight + fallback.gapY),w:fallback.cellWidth,h:fallback.cellHeight,atlasWidth:fallback.width,atlasHeight:fallback.height}
+  };
 }
 
-function restorationPlateImageStyle(locationId, step, src = '') {
-  if (locationId === 'cafe' && CAFE_DIRECT_PLATES[src]) return '';
-  const atlas = restorationPlateAtlas(locationId);
-  const frame = atlas.frames[Math.max(0,Math.min(8,Math.floor(Number(step)||0)))];
-  return `--plate-atlas-width:${(atlas.width / frame.w * 100).toFixed(4)}%;--plate-atlas-height:${(atlas.height / frame.h * 100).toFixed(4)}%;--plate-atlas-left:${(-frame.x / frame.w * 100).toFixed(4)}%;--plate-atlas-top:${(-frame.y / frame.h * 100).toFixed(4)}%`;
+function plateKey(plate) {
+  return `${plate.src}|${plate.frame ? `${plate.frame.x},${plate.frame.y},${plate.frame.w},${plate.frame.h}` : 'full'}`;
 }
 
-function restorationPlateFrameSize(locationId, step, src = '') {
-  if (locationId === 'cafe' && CAFE_DIRECT_PLATES[src]) {
-    const size = CAFE_DIRECT_PLATES[src];
-    return {x:0,y:0,w:size.width,h:size.height};
-  }
-  const atlas = restorationPlateAtlas(locationId);
-  return atlas.frames[Math.max(0,Math.min(8,Math.floor(Number(step)||0)))];
+function plateImageStyle(plate) {
+  const frame = plate?.frame;
+  if (!frame) return '';
+  return `--plate-atlas-width:${(frame.atlasWidth / frame.w * 100).toFixed(4)}%;--plate-atlas-height:${(frame.atlasHeight / frame.h * 100).toFixed(4)}%;--plate-atlas-left:${(-frame.x / frame.w * 100).toFixed(4)}%;--plate-atlas-top:${(-frame.y / frame.h * 100).toFixed(4)}%`;
 }
 
-function restorationBaseArt(location) {
-  return restorationPlateAtlas(location.id).src;
+function restorationBaseArt(location, step = Number(state.levels[location.id]) || 0) {
+  return getPlate(location.id,step);
 }
 
 function restorationArt(location, level) {
   const detail = repairDetailState(location.id, level) || {};
-  const atlas = restorationBaseArt(location);
-  const useDirectCafePlates = location.id === 'cafe' && detail.plateBefore && detail.plateAfter;
   return {
     ...detail,
-    before:useDirectCafePlates ? detail.plateBefore : atlas,
-    after:useDirectCafePlates ? detail.plateAfter : atlas,
+    before:getPlate(location.id,Math.max(0,level - 1)),
+    after:getPlate(location.id,Math.min(8,level)),
     beforeFrame:Math.max(0,level - 1),
     afterFrame:Math.min(8,level),
-    interior:detail.zone === 'indoor',
-    focused:false
+    interior:detail.zone === 'indoor', focused:false
   };
-}
-
-function cafeFloorTintMarkup(plate, floor = getCafeFloor()) {
-  if (!/^assets\/restore-cafe-room-[45]\.webp$/.test(plate)) return '';
-  const tint = CAFE_FLOORS.some(option => option.id === floor?.id) ? floor.color : CAFE_FLOORS[0].color;
-  return `<svg class="cafe-floor-tint" viewBox="0 0 512 576" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style="--cafe-floor-tone:${tint}"><path d="M43 384 181 337h229l68 49v190H43Z"/></svg>`;
 }
 
 function restorationSceneLines(location, kind, requestedLevel = 0) {
@@ -2415,31 +2397,21 @@ function commitRestoration(choice = null) {
     const stageTitle = RESTORATION_STAGES[location.id]?.[level - 1]?.[0] || `${location.name} improvement`;
     const detail = repairDetailState(location.id, level) || {};
     const visual = restorationArt(location, level);
-    const beforeDirect = location.id === 'cafe' && Boolean(CAFE_DIRECT_PLATES[visual.before]);
-    const afterDirect = location.id === 'cafe' && Boolean(CAFE_DIRECT_PLATES[visual.after]);
+    const beforeDirect = !visual.before.frame;
+    const afterDirect = !visual.after.frame;
+    const areaComplete = level >= location.decos.length;
     enqueueCompletion({
-      kind:'restoration', priority:20, locationName:location.name,
-      repairName:detail.repairItem || stageTitle, icon:location.decos[level - 1],
-      beforeArt:visual.before, afterArt:visual.after,
-      beforeStyle:restorationPlateImageStyle(location.id,visual.beforeFrame,visual.before),
-      afterStyle:restorationPlateImageStyle(location.id,visual.afterFrame,visual.after),
-      beforeDirect, afterDirect,
-      beforeLabel:detail.beforeState || stageTitle,
-      afterLabel:detail.afterState || stageTitle,
+      kind:areaComplete ? 'area' : 'restoration', priority:20, locationName:location.name,
+      locationIcon:location.icon, repairName:detail.repairItem || stageTitle, icon:location.decos[level - 1],
+      ...(areaComplete
+        ? { art:visual.after.src, artStyle:plateImageStyle(visual.after), directArt:afterDirect }
+        : { beforeArt:visual.before.src, afterArt:visual.after.src, beforeStyle:plateImageStyle(visual.before), afterStyle:plateImageStyle(visual.after), beforeDirect, afterDirect, beforeLabel:detail.beforeState || stageTitle, afterLabel:detail.afterState || stageTitle }),
       progress:`${location.icon} ${level} / ${location.decos.length} improvements`,
-      message:`${detail.repairItem || stageTitle} is repaired and now appears in ${location.name}.`,
+      message:areaComplete
+        ? `${detail.repairItem || stageTitle} is repaired, and every restoration task in the ${location.name.toLowerCase()} is complete. The finished scene is saved for every visit.`
+        : `${detail.repairItem || stageTitle} is repaired and now appears in ${location.name}.`,
       rewards:[{icon:'🪙',amount:coinReward,label:'coins'},{icon:'⭐',amount:1,label:'star'},{icon:'✦',amount:20,label:'XP'}]
-    }, `restoration-${location.id}-${level}`);
-    if (level >= location.decos.length) {
-      enqueueCompletion({
-        kind:'area', priority:30, locationName:location.name, locationIcon:location.icon,
-        art:visual.after, artStyle:restorationPlateImageStyle(location.id,visual.afterFrame,visual.after),
-        directArt:afterDirect,
-        progress:`${location.decos.length} / ${location.decos.length} improvements`,
-        message:`Every restoration task in the ${location.name.toLowerCase()} is complete. The finished scene is saved for every visit.`,
-        rewards:[]
-      }, `area-complete-${location.id}`);
-    }
+    }, areaComplete ? `area-complete-${location.id}` : `restoration-${location.id}-${level}`);
   } else {
     state.levels[location.id] = Math.max(Number(state.levels[location.id]) || 0, level);
     receipt.committed = true;
@@ -2461,6 +2433,7 @@ function restorationEnergyCountdown() {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+/* Retired legacy restoration HUD and navigation renderers.
 function restorationHudMarkupLegacy(locationId = '') {
   const xpPercent = Math.min(100, state.xp / Math.max(1, xpForNextLevel()) * 100);
   if (locationId === 'cafe') {
@@ -2519,12 +2492,18 @@ function restorationNavMarkupLegacy(locationId = '') {
   </nav>`;
 }
 
-function restorationHudMarkup() {
+*/
+
+function restorationHudMarkup(location) {
   const xpPercent = Math.min(100, state.xp / Math.max(1, xpForNextLevel()) * 100);
+  const completed = Math.min(location?.decos.length || 0, Math.max(0, Number(state.levels[location?.id]) || 0));
+  const total = Math.max(1, location?.decos.length || 1);
+  const percent = Math.round(completed / total * 100);
   return `<section class="restoration-hud" aria-label="Player status"><div class="restoration-hud-top">
     <div class="restoration-level" aria-label="Level ${state.playerLevel}, ${state.xp} of ${xpForNextLevel()} experience"><b>${state.playerLevel}</b><i><b style="width:${xpPercent}%"></b></i></div>
     <div class="restoration-resources" aria-label="Harbor resources"><div class="repair-resource repair-energy" aria-label="${state.energy} of ${maxEnergy()} energy"><span>⚡</span><b data-repair-energy-value>${state.energy}</b></div><div class="repair-resource repair-coins" aria-label="${state.coins} coins"><span>🪙</span><b>${state.coins}</b></div><div class="repair-resource repair-stars" aria-label="${state.stars} stars"><span>⭐</span><b>${state.stars}</b></div><div class="repair-resource repair-gems" aria-label="${state.pearls} gems"><span>💎</span><b>${state.pearls}</b></div></div>
-  </div></section>
+  </div><div class="restoration-hud-utilities" aria-label="Harbor shortcuts"><button type="button" data-repair-utility="journal" aria-label="Open mail and story journal">✉️</button><button type="button" data-repair-utility="more" aria-label="Open settings and more">⚙️</button></div></section>
+  <button class="restoration-story-progress" type="button" data-repair-story aria-label="${location?.icon || '⚓'} ${location?.name || 'Location'}, ${percent}% restored, open chapter and step details"><span><b>${location?.icon || '⚓'} ${percent}%</b><small>${completed}/${total}</small></span><i><b style="width:${percent}%"></b></i></button>
   <div class="repair-subcontrols"><button class="restoration-back" type="button" data-restoration-return aria-label="Back to Town">‹</button><div class="restoration-hud-utilities"><button type="button" class="repair-sound-toggle" data-repair-utility="sound" aria-label="${muted ? 'Turn sound on' : 'Turn sound off'}"><span>${muted ? '🔇' : '🔊'}</span></button></div></div>`;
 }
 
@@ -2532,27 +2511,91 @@ function restorationNavMarkup() {
   return `<nav class="restoration-nav" aria-label="Game navigation"><button type="button" data-restoration-nav="town"><span>🏘️</span><small>Town</small></button><button type="button" data-restoration-nav="repairs" class="active" aria-current="page"><span>🛠️</span><small>Repair</small></button><button type="button" data-restoration-nav="picnic"><span>🏖️</span><small>Picnic</small></button><button type="button" data-restoration-nav="journal"><span>📖</span><small>Journal</small></button><button type="button" data-restoration-nav="more"><span>☰</span><small>More</small></button></nav>`;
 }
 
+const PLATE_DEBUG = new URLSearchParams(location.search).get('debug') === 'plates';
+const measuredRepairRegions = new Map();
+const reportedPlateErrors = new Set();
+
 function restorationCastMarkup(locationId, level) {
   return restorationCastFor(locationId, level).map(actor => {
-    const sort = Math.round(actor.feetY * 10);
+    const sort = Math.round(actor.feetY * 10000);
     const label = actor.id[0].toUpperCase() + actor.id.slice(1);
-    return `<span class="repair-stage-actor" style="--actor-x:${actor.x}%;--actor-feet:${actor.feetY}%;--actor-sort:${sort}" aria-label="${label}" title="${label}"><i aria-hidden="true"></i><img src="${actor.src}" alt=""></span>`;
+    return `<button class="repair-stage-actor" type="button" data-repair-actor="${actor.id}" style="--actor-x:${actor.x * 100}%;--actor-feet:${actor.feetY * 100}%;--actor-height:${actor.heightScale * 100}%;--actor-sort:${sort}" aria-label="${label}, tap to hear them"><i aria-hidden="true"></i><img src="${actor.src}" alt=""><span class="repair-actor-speech" aria-live="polite"></span></button>`;
   }).join('');
 }
 
-function restorationHotspotsMarkup(locationId, activeLevel, selectedLevel = 0, phase = 'objective', cost = 0) {
-  if (phase !== 'objective') return '';
-  const detail = repairDetailState(locationId, activeLevel);
-  if (!detail) return '';
-  const x = ((detail.x + detail.width / 2) / 576) * 100;
-  const y = ((detail.y + detail.height / 2) / 1024) * 100;
-  const width = (detail.width / 576) * 100;
-  const height = (detail.height / 1024) * 100;
-  const unaffordable = state.coins < cost;
-  return `<button class="repair-hotspot-marker ${unaffordable ? 'unaffordable' : ''}" type="button" data-open-repair aria-label="${detail.repairItem}, repair cost ${cost} coins" style="--repair-hit-x:${x}%;--repair-hit-y:${y}%;--repair-hit-width:${width}%;--repair-hit-height:${height}%"><span class="repair-cost-bubble"><span class="repair-bubble-tool" aria-hidden="true">${detail.tool || '🔨'}</span><img src="assets/harbor-gold-coin.webp" alt=""><b>${cost}</b><i aria-hidden="true"></i></span></button>`;
+function repairDesignArtMarkup(locationId, level, option) {
+  const plate = getPlate(locationId, level);
+  const frame = plate.frame;
+  const imageStyle = frame
+    ? `left:${(-frame.x / frame.w * 100).toFixed(4)}%;top:${(-frame.y / frame.h * 100).toFixed(4)}%;width:${(frame.atlasWidth / frame.w * 100).toFixed(4)}%;height:${(frame.atlasHeight / frame.h * 100).toFixed(4)}%`
+    : 'left:0;top:0;width:100%;height:100%';
+  return `<span class="repair-choice-crop" style="--choice-color:${option?.color || '#e5b66b'}"><img class="repair-choice-plate" src="${plate.src}" style="${imageStyle}" alt=""><i aria-hidden="true"></i></span>`;
 }
 
-function restorationSelectionMarkup() { return ''; }
+function repairRegion(locationId, level) {
+  return measuredRepairRegions.get(`${locationId}:${level}`) || REGIONS[locationId]?.[level - 1] || {x:.38,y:.32,w:.24,h:.18};
+}
+
+function platePixels(plate) {
+  return new Promise((resolve,reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const frame = plate.frame || {x:0,y:0,w:image.naturalWidth,h:image.naturalHeight};
+      const canvas = document.createElement('canvas');
+      canvas.width = frame.w;
+      canvas.height = frame.h;
+      const context = canvas.getContext('2d',{willReadFrequently:true});
+      if (!context) return reject(new Error('Canvas is unavailable for plate comparison.'));
+      context.drawImage(image,frame.x,frame.y,frame.w,frame.h,0,0,frame.w,frame.h);
+      resolve({width:frame.w,height:frame.h,pixels:context.getImageData(0,0,frame.w,frame.h).data});
+    };
+    image.onerror = () => reject(new Error(`Could not load ${plate.src}`));
+    image.src = plate.src;
+  });
+}
+
+async function measurePlateRegion(locationId, level, drawBox) {
+  const beforePlate = getPlate(locationId,level - 1);
+  const afterPlate = getPlate(locationId,level);
+  try {
+    const [before,after] = await Promise.all([platePixels(beforePlate),platePixels(afterPlate)]);
+    const width = Math.min(before.width,after.width);
+    const height = Math.min(before.height,after.height);
+    let minX = width, minY = height, maxX = -1, maxY = -1, total = 0, insideTotal = 0, insideCount = 0, outsideTotal = 0, outsideCount = 0;
+    const changed = new Uint8Array(width * height);
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+      const index = (y * before.width + x) * 4;
+      const diff = (Math.abs(before.pixels[index] - after.pixels[(y * after.width + x) * 4]) + Math.abs(before.pixels[index + 1] - after.pixels[(y * after.width + x) * 4 + 1]) + Math.abs(before.pixels[index + 2] - after.pixels[(y * after.width + x) * 4 + 2])) / 3;
+      total += diff;
+      if (diff > 28) {
+        changed[y * width + x] = 1;
+        minX = Math.min(minX,x); minY = Math.min(minY,y); maxX = Math.max(maxX,x); maxY = Math.max(maxY,y);
+      }
+    }
+    if (maxX < 0) {
+      console.error(`[Harbor Whispers] Plate ${locationId}:${level} did not change between steps.`);
+      return null;
+    }
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+      const index = (y * before.width + x) * 4;
+      const diff = (Math.abs(before.pixels[index] - after.pixels[(y * after.width + x) * 4]) + Math.abs(before.pixels[index + 1] - after.pixels[(y * after.width + x) * 4 + 1]) + Math.abs(before.pixels[index + 2] - after.pixels[(y * after.width + x) * 4 + 2])) / 3;
+      if (x >= minX && x <= maxX && y >= minY && y <= maxY) { insideTotal += diff; insideCount += 1; }
+      else { outsideTotal += diff; outsideCount += 1; }
+    }
+    const region = {x:minX / width,y:minY / height,w:(maxX - minX + 1) / width,h:(maxY - minY + 1) / height};
+    const insideMean = insideTotal / Math.max(1,insideCount);
+    const outsideMean = outsideTotal / Math.max(1,outsideCount);
+    console.info(`[Plate debug] ${locationId}:${level}`,{changedBox:region,insideMean:+insideMean.toFixed(2),outsideMean:+outsideMean.toFixed(2),overallMean:+(total / (width * height)).toFixed(2)});
+    if (insideMean < 2) console.error(`[Harbor Whispers] Plate ${locationId}:${level} has almost no difference inside its repair box.`);
+    if (outsideMean > 12) console.error(`[Harbor Whispers] Plate ${locationId}:${level} changes substantially outside its repair box (mean ${outsideMean.toFixed(1)}).`);
+    measuredRepairRegions.set(`${locationId}:${level}`,region);
+    drawBox?.(region,insideMean,outsideMean);
+    return region;
+  } catch (error) {
+    console.error(`[Harbor Whispers] Plate debug failed for ${locationId}:${level}.`,error);
+    return null;
+  }
+}
 
 function showRepairProgressModal(location, activeLevel, exitToBoard) {
   if (!location) return;
@@ -2624,6 +2667,11 @@ function showRestorationMoment(location, level, resume = false) {
   let selectedSceneTarget = 0;
   let sceneTimer = 0;
   let hudTimer = 0;
+  let speechTimer = 0;
+  let speechHideTimer = 0;
+  let cameraAnimationFrame = 0;
+  let nextSpeechIndex = 0;
+  let purchasePreviewOpen = false;
   let insufficient = false;
   let locationRestoredNotice = false;
   let repairLocked = phase !== 'objective';
@@ -2633,7 +2681,7 @@ function showRestorationMoment(location, level, resume = false) {
   if (savedIndex >= 0) selectedChoice = savedIndex;
 
   const overlay = document.createElement('section');
-  overlay.className = `restoration-scene-screen restoration-repair-screen ${location.id === 'cafe' ? 'restoration-cafe-screen' : 'restoration-portrait-screen'} ${location.id === 'cafe' && CAFE_DIRECT_PLATES[art.before] ? 'restoration-direct-cafe-stage' : ''}`;
+  overlay.className = `restoration-scene-screen restoration-repair-screen ${location.id === 'cafe' ? 'restoration-cafe-screen' : 'restoration-portrait-screen'}`;
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-label', `${location.name} restoration scene`);
@@ -2641,6 +2689,9 @@ function showRestorationMoment(location, level, resume = false) {
   function returnToBoard(boardKey = 'main') {
     window.clearTimeout(sceneTimer);
     window.clearInterval(hudTimer);
+    window.clearInterval(speechTimer);
+    window.clearTimeout(speechHideTimer);
+    if (cameraAnimationFrame) window.cancelAnimationFrame(cameraAnimationFrame);
     releaseCamera();
     const resumeQueuedStory = storyDialogsDeferred;
     storyDialogsDeferred = false;
@@ -2663,32 +2714,49 @@ function showRestorationMoment(location, level, resume = false) {
     if (phase !== 'objective') return;
     const detail = repairDetailState(location.id, level) || {};
     const canAfford = state.coins >= cost;
-    const modal = showModal(`<div class="repair-confirm-sheet"><header><small>${location.icon} ${location.name} · ${level}/${location.decos.length}</small><button class="repair-sheet-close" type="button" aria-label="Close repair details">×</button></header><h2>${stage[0]}</h2><p>${detail.beforeState || stage[1]}</p><div class="repair-confirm-rewards"><span>⭐ <b>+1</b></span><span>✦ <b>+20 XP</b></span></div><div class="repair-confirm-cost ${canAfford ? '' : 'short'}"><span>🪙</span><b>${cost}</b></div><button class="btn primary repair-confirm-action" type="button" ${canAfford ? '' : 'disabled'}>Repair</button></div>`, root => {
+    const preview = overlay.querySelector('.repair-purchase-preview');
+    const previewImage = preview?.querySelector('img');
+    if (preview && previewImage) {
+      const region = repairRegion(location.id,level);
+      setPlateLayer(previewImage,sceneRevealPlate,`${location.name} repair preview`);
+      preview.style.clipPath = `inset(${region.y * 100}% ${100 - (region.x + region.w) * 100}% ${100 - (region.y + region.h) * 100}% ${region.x * 100}%)`;
+      purchasePreviewOpen = true;
+      preview.hidden = false;
+    }
+    const modal = showModal(`<div class="repair-confirm-sheet"><header><small>${location.icon} ${location.name} · ${level}/${location.decos.length}</small><button class="repair-sheet-close" type="button" aria-label="Close repair details">×</button></header><h2>${stage[0]}</h2><p>${detail.beforeState || stage[1]}</p><div class="repair-confirm-rewards"><span>⭐ <b>+1</b></span><span>✦ <b>+20 XP</b></span></div><div class="repair-confirm-cost ${canAfford ? '' : 'short'}"><span>🪙</span><b>${cost}</b></div><button class="btn primary repair-confirm-action ${canAfford ? '' : 'earn-coins'}" type="button">${canAfford ? 'Repair' : 'Earn coins'}</button></div>`, root => {
       root.classList.add('repair-confirm-modal');
       root.style.zIndex = '120';
-      root.querySelector('.repair-sheet-close').onclick = () => root.remove();
-      root.querySelector('.repair-confirm-action').onclick = () => { root.remove(); beginRestoration(); };
+      const removePreview = () => {
+        purchasePreviewOpen = false;
+        if (preview) preview.hidden = true;
+      };
+      root.querySelector('.repair-sheet-close').onclick = () => { removePreview(); root.remove(); };
+      root.addEventListener('pointerdown', event => { if (event.target === root) removePreview(); });
+      root.querySelector('.repair-confirm-action').onclick = () => {
+        removePreview();
+        root.remove();
+        if (canAfford) beginRestoration();
+        else returnToBoard('main');
+      };
     });
     return modal;
   }
 
-  const CAMERA_WIDTH = 1620;
-  const CAMERA_DEFAULT_HEIGHT = 2880;
+  const CAMERA_WIDTH = 1000;
+  const CAMERA_DEFAULT_HEIGHT = 1000 * 16 / 9;
   const camera = {
     zoom:0, min:0, max:0, x:0, y:0, planeHeight:CAMERA_DEFAULT_HEIGHT,
     initialized:false, lastViewWidth:0, lastViewHeight:0, lastPlaneHeight:CAMERA_DEFAULT_HEIGHT,
     pointers:new Map(), pan:null, pinch:null
   };
   function cameraLimits(world) {
-    const viewWidth = world.clientWidth;
-    const viewHeight = world.clientHeight;
     const scaledWidth = CAMERA_WIDTH * camera.zoom;
     const scaledHeight = camera.planeHeight * camera.zoom;
     return {
-      minX: scaledWidth > viewWidth ? viewWidth - scaledWidth : (viewWidth - scaledWidth) / 2,
-      maxX: scaledWidth > viewWidth ? 0 : (viewWidth - scaledWidth) / 2,
-      minY: scaledHeight > viewHeight ? viewHeight - scaledHeight : (viewHeight - scaledHeight) / 2,
-      maxY: scaledHeight > viewHeight ? 0 : (viewHeight - scaledHeight) / 2
+      minX:scaledWidth > world.clientWidth ? world.clientWidth - scaledWidth : (world.clientWidth - scaledWidth) / 2,
+      maxX:scaledWidth > world.clientWidth ? 0 : (world.clientWidth - scaledWidth) / 2,
+      minY:scaledHeight > world.clientHeight ? world.clientHeight - scaledHeight : (world.clientHeight - scaledHeight) / 2,
+      maxY:scaledHeight > world.clientHeight ? 0 : (world.clientHeight - scaledHeight) / 2
     };
   }
   function applyCamera() {
@@ -2696,64 +2764,124 @@ function showRestorationMoment(location, level, resume = false) {
     const canvas = overlay.querySelector('.restoration-art-canvas');
     const beforeArt = overlay.querySelector('.restoration-world-before');
     if (!world || !canvas) return;
-    if (beforeArt?.dataset.frameWidth && beforeArt?.dataset.frameHeight) {
-      camera.planeHeight = CAMERA_WIDTH * Number(beforeArt.dataset.frameHeight) / Number(beforeArt.dataset.frameWidth);
-    } else if (beforeArt?.naturalWidth && beforeArt?.naturalHeight) {
-      camera.planeHeight = CAMERA_WIDTH * beforeArt.naturalHeight / beforeArt.naturalWidth;
-    }
-    canvas.style.setProperty('--camera-plane-height', `${camera.planeHeight}px`);
-    const viewWidth = Math.max(1, world.clientWidth);
-    const viewHeight = Math.max(1, world.clientHeight);
-    // Cover the viewport so portrait repair artwork reaches both screen edges.
-    // This crops only the sides on narrow phones while keeping the plate undistorted.
-    const baseZoom = Math.max(viewWidth / CAMERA_WIDTH, viewHeight / camera.planeHeight);
-    const resized = camera.initialized && (
-      viewWidth !== camera.lastViewWidth ||
-      viewHeight !== camera.lastViewHeight ||
-      Math.abs(camera.planeHeight - camera.lastPlaneHeight) > .5
-    );
-    const oldZoom = camera.zoom;
-    const oldMin = camera.min;
+    const frame = beforeArt?.dataset.frameWidth && beforeArt?.dataset.frameHeight
+      ? {width:Number(beforeArt.dataset.frameWidth),height:Number(beforeArt.dataset.frameHeight)}
+      : beforeArt?.naturalWidth ? {width:beforeArt.naturalWidth,height:beforeArt.naturalHeight} : null;
+    if (frame?.width && frame?.height) camera.planeHeight = CAMERA_WIDTH * frame.height / frame.width;
+    const viewWidth = Math.max(1,world.clientWidth);
+    const viewHeight = Math.max(1,world.clientHeight);
+    const fitZoom = Math.max(viewWidth / CAMERA_WIDTH, viewHeight / camera.planeHeight) * (location.id === 'cafe' ? 1.16 : 1);
+    const resized = camera.initialized && (viewWidth !== camera.lastViewWidth || viewHeight !== camera.lastViewHeight || Math.abs(camera.planeHeight - camera.lastPlaneHeight) > .5);
     if (!camera.initialized) {
-      camera.zoom = baseZoom;
+      camera.zoom = fitZoom;
       camera.x = (viewWidth - CAMERA_WIDTH * camera.zoom) / 2;
-      camera.y = (viewHeight - camera.planeHeight * camera.zoom) / 2;
+      camera.y = location.id === 'cafe' ? 0 : (viewHeight - camera.planeHeight * camera.zoom) / 2;
       camera.initialized = true;
     } else if (resized) {
-      const anchorX = oldZoom > 0 ? (camera.lastViewWidth / 2 - camera.x) / oldZoom : CAMERA_WIDTH / 2;
-      const anchorY = oldZoom > 0 ? (camera.lastViewHeight / 2 - camera.y) / oldZoom : camera.lastPlaneHeight / 2;
-      const normalizedY = camera.lastPlaneHeight > 0 ? anchorY / camera.lastPlaneHeight : .5;
-      const relativeZoom = oldMin > 0 ? oldZoom / oldMin : 1;
-      camera.zoom = Math.max(baseZoom, Math.min(baseZoom * 2, baseZoom * relativeZoom));
-      camera.x = viewWidth / 2 - anchorX * camera.zoom;
+      const normalizedX = camera.lastViewWidth > 0 ? (camera.lastViewWidth / 2 - camera.x) / (CAMERA_WIDTH * camera.zoom) : .5;
+      const normalizedY = camera.lastPlaneHeight > 0 ? (camera.lastViewHeight / 2 - camera.y) / (camera.lastPlaneHeight * camera.zoom) : .5;
+      const relativeZoom = camera.min > 0 ? camera.zoom / camera.min : 1;
+      camera.zoom = Math.max(fitZoom,Math.min(fitZoom * 2.5,fitZoom * relativeZoom));
+      camera.x = viewWidth / 2 - normalizedX * CAMERA_WIDTH * camera.zoom;
       camera.y = viewHeight / 2 - normalizedY * camera.planeHeight * camera.zoom;
     } else {
-      camera.zoom = Math.max(baseZoom, Math.min(baseZoom * 2, camera.zoom || baseZoom));
+      camera.zoom = Math.max(fitZoom,Math.min(fitZoom * 2.5,camera.zoom || fitZoom));
     }
-    camera.min = baseZoom;
-    camera.max = baseZoom * 2;
+    camera.min = fitZoom;
+    camera.max = fitZoom * 2.5;
     camera.lastViewWidth = viewWidth;
     camera.lastViewHeight = viewHeight;
     camera.lastPlaneHeight = camera.planeHeight;
     const bounds = cameraLimits(world);
-    camera.x = Math.max(bounds.minX, Math.min(bounds.maxX, camera.x));
-    camera.y = Math.max(bounds.minY, Math.min(bounds.maxY, camera.y));
-    canvas.style.setProperty('--camera-x', `${camera.x}px`);
-    canvas.style.setProperty('--camera-y', `${camera.y}px`);
-    canvas.style.setProperty('--camera-zoom', String(camera.zoom));
-    canvas.style.setProperty('--camera-counter-zoom', String(1 / Math.max(.01, camera.zoom)));
+    camera.x = Math.max(bounds.minX,Math.min(bounds.maxX,camera.x));
+    camera.y = Math.max(bounds.minY,Math.min(bounds.maxY,camera.y));
+    canvas.style.setProperty('--camera-plane-height',`${camera.planeHeight}px`);
+    canvas.style.setProperty('--camera-x',`${camera.x}px`);
+    canvas.style.setProperty('--camera-y',`${camera.y}px`);
+    canvas.style.setProperty('--camera-zoom',String(camera.zoom));
+    canvas.style.setProperty('--camera-counter-zoom',String(1 / Math.max(.01,camera.zoom)));
   }
-  function focusCameraOnHotspot() {
+  function focusCameraOnHotspot(targetLevel = level) {
     const world = overlay.querySelector('.restoration-world');
     if (!world) return;
-    const detail = repairDetailState(location.id, level);
-    if (!detail) return;
-    const artX = ((detail.x + detail.width / 2) / 576) * CAMERA_WIDTH;
-    const artY = ((detail.y + detail.height / 2) / 1024) * camera.planeHeight;
+    const region = repairRegion(location.id,Math.max(1,Math.min(location.decos.length,targetLevel)));
+    const artX = (region.x + region.w / 2) * CAMERA_WIDTH;
+    const artY = (region.y + region.h / 2) * camera.planeHeight;
     camera.x = world.clientWidth / 2 - artX * camera.zoom;
-    camera.y = world.clientHeight / 2 - artY * camera.zoom;
+    camera.y = world.clientHeight * (location.id === 'cafe' ? .52 : .5) - artY * camera.zoom;
     clampCamera(world);
     applyCamera();
+  }
+  function animateCameraTo(targetX,targetY,targetZoom = camera.zoom,duration = 520) {
+    const world = overlay.querySelector('.restoration-world');
+    if (!world) return;
+    if (cameraAnimationFrame) window.cancelAnimationFrame(cameraAnimationFrame);
+    const fromX = camera.x;
+    const fromY = camera.y;
+    const fromZoom = camera.zoom;
+    camera.zoom = Math.max(camera.min,Math.min(camera.max,targetZoom));
+    camera.x = targetX;
+    camera.y = targetY;
+    clampCamera(world);
+    const endX = camera.x;
+    const endY = camera.y;
+    const endZoom = camera.zoom;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      applyCamera();
+      cameraAnimationFrame = 0;
+      return;
+    }
+    camera.x = fromX;
+    camera.y = fromY;
+    camera.zoom = fromZoom;
+    const start = performance.now();
+    const animate = now => {
+      const ratio = Math.min(1,(now - start) / duration);
+      const eased = 1 - Math.pow(1 - ratio,3);
+      camera.x = fromX + (endX - fromX) * eased;
+      camera.y = fromY + (endY - fromY) * eased;
+      camera.zoom = fromZoom + (endZoom - fromZoom) * eased;
+      applyCamera();
+      if (ratio < 1 && overlay.isConnected) cameraAnimationFrame = window.requestAnimationFrame(animate);
+      else cameraAnimationFrame = 0;
+    };
+    cameraAnimationFrame = window.requestAnimationFrame(animate);
+  }
+  function easeCameraToRegion(targetLevel) {
+    const world = overlay.querySelector('.restoration-world');
+    if (!world || targetLevel > location.decos.length) return;
+    const region = repairRegion(location.id,targetLevel);
+    const targetX = world.clientWidth / 2 - (region.x + region.w / 2) * CAMERA_WIDTH * camera.zoom;
+    const targetY = world.clientHeight / 2 - (region.y + region.h / 2) * camera.planeHeight * camera.zoom;
+    animateCameraTo(targetX,targetY,camera.zoom,560);
+  }
+  function easeCameraToFullPlate() {
+    const world = overlay.querySelector('.restoration-world');
+    if (!world) return;
+    const targetZoom = camera.min || Math.max(world.clientWidth / CAMERA_WIDTH,world.clientHeight / camera.planeHeight);
+    const targetX = (world.clientWidth - CAMERA_WIDTH * targetZoom) / 2;
+    const targetY = location.id === 'cafe' ? 0 : (world.clientHeight - camera.planeHeight * targetZoom) / 2;
+    animateCameraTo(targetX,targetY,targetZoom,680);
+  }
+  function showActorSpeech(actorId) {
+    const actors = [...overlay.querySelectorAll('.repair-stage-actor')];
+    if (!actors.length) return;
+    const target = actors.find(actor => actor.dataset.repairActor === actorId) || actors[0];
+    const lines = RESTORATION_DIALOGUE[location.id] || RESTORATION_DIALOGUE.cafe;
+    const matchingLine = lines.find(line => line[0] === target.dataset.repairActor);
+    const entry = matchingLine || lines[nextSpeechIndex % lines.length] || lines[0];
+    nextSpeechIndex = (nextSpeechIndex + 1) % Math.max(1,lines.length);
+    actors.forEach(actor => {
+      actor.classList.remove('speaking');
+      const bubble = actor.querySelector('.repair-actor-speech');
+      if (bubble) bubble.textContent = '';
+    });
+    const bubble = target.querySelector('.repair-actor-speech');
+    if (!bubble || !entry) return;
+    bubble.textContent = `“${entry[1]}”`;
+    target.classList.add('speaking');
+    window.clearTimeout(speechHideTimer);
+    speechHideTimer = window.setTimeout(() => target.classList.remove('speaking'),3200);
   }
   function cameraPoint(event, world) {
     const rect = world.getBoundingClientRect();
@@ -2769,63 +2897,63 @@ function showRestorationMoment(location, level, resume = false) {
     return CAMERA_WIDTH * camera.zoom > world.clientWidth + .5 || camera.planeHeight * camera.zoom > world.clientHeight + .5;
   }
   function cameraPointerDown(event) {
-    if (event.target.closest('.repair-hotspot-marker, .repair-cost-bubble, .restoration-nav, .restoration-hud, .repair-subcontrols, .restoration-story-progress, .restoration-edge-actions, .repair-design-dialog, .restoration-bottom')) return;
+    if (event.target.closest('.repair-hotspot-marker, .repair-stage-actor, .restoration-nav, .restoration-hud, .repair-subcontrols, .restoration-topbar, .repair-design-dialog, .restoration-bottom, .restoration-story-progress')) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const world = overlay.querySelector('.restoration-world');
     if (!world) return;
     world.setPointerCapture?.(event.pointerId);
-    const point = cameraPoint(event, world);
-    camera.pointers.set(event.pointerId, point);
-    if (camera.pointers.size === 1) camera.pan = {point, x:camera.x, y:camera.y};
+    const point = cameraPoint(event,world);
+    camera.pointers.set(event.pointerId,point);
+    if (camera.pointers.size === 1) camera.pan = {point,start:point,x:camera.x,y:camera.y,moved:false};
     if (camera.pointers.size === 2) {
       const points = [...camera.pointers.values()];
-      camera.pinch = {
-        distance:Math.max(1,distanceBetween(points[0],points[1])), zoom:camera.zoom, x:camera.x, y:camera.y,
-        midpoint:{x:(points[0].x+points[1].x)/2,y:(points[0].y+points[1].y)/2}
-      };
+      camera.pinch = {distance:Math.max(1,distanceBetween(points[0],points[1])),zoom:camera.zoom,x:camera.x,y:camera.y,midpointX:(points[0].x+points[1].x)/2,midpointY:(points[0].y+points[1].y)/2};
       camera.pan = null;
     }
-    event.preventDefault();
   }
   function cameraPointerMove(event) {
     if (!camera.pointers.has(event.pointerId)) return;
     const world = overlay.querySelector('.restoration-world');
     if (!world) return;
-    camera.pointers.set(event.pointerId, cameraPoint(event, world));
+    const point = cameraPoint(event,world);
+    camera.pointers.set(event.pointerId,point);
     if (camera.pointers.size >= 2 && camera.pinch) {
       const points = [...camera.pointers.values()].slice(0,2);
-      const midpoint = {x:(points[0].x+points[1].x)/2,y:(points[0].y+points[1].y)/2};
+      const midpointX = (points[0].x + points[1].x) / 2;
+      const midpointY = (points[0].y + points[1].y) / 2;
       const pinchFactor = distanceBetween(points[0],points[1]) / camera.pinch.distance;
-      const nextZoom = Math.max(camera.min, Math.min(camera.max, camera.pinch.zoom * pinchFactor));
-      const anchorX = (camera.pinch.midpoint.x - camera.pinch.x) / camera.pinch.zoom;
-      const anchorY = (camera.pinch.midpoint.y - camera.pinch.y) / camera.pinch.zoom;
+      const nextZoom = Math.max(camera.min,Math.min(camera.max,camera.pinch.zoom * pinchFactor));
+      const anchorX = (camera.pinch.midpointX - camera.pinch.x) / camera.pinch.zoom;
+      const anchorY = (camera.pinch.midpointY - camera.pinch.y) / camera.pinch.zoom;
       camera.zoom = nextZoom;
-      camera.x = midpoint.x - anchorX * nextZoom;
-      camera.y = midpoint.y - anchorY * nextZoom;
+      camera.x = midpointX - anchorX * nextZoom;
+      camera.y = midpointY - anchorY * nextZoom;
+      event.preventDefault();
     } else if (camera.pan && canPanAtCurrentZoom(world)) {
-      const point = cameraPoint(event, world);
+      if (!camera.pan.moved && distanceBetween(point,camera.pan.start) < 8) return;
+      camera.pan.moved = true;
       camera.x = camera.pan.x + point.x - camera.pan.point.x;
       camera.y = camera.pan.y + point.y - camera.pan.point.y;
+      event.preventDefault();
     }
     clampCamera(world);
     applyCamera();
-    event.preventDefault();
   }
   function cameraPointerUp(event) {
     camera.pointers.delete(event.pointerId);
     camera.pinch = null;
     camera.pan = camera.pointers.size === 1
-      ? {point:[...camera.pointers.values()][0],x:camera.x,y:camera.y}
+      ? {point:[...camera.pointers.values()][0],start:[...camera.pointers.values()][0],x:camera.x,y:camera.y,moved:false}
       : null;
   }
   function cameraWheel(event) {
     const world = overlay.querySelector('.restoration-world');
-    if (!world || event.target.closest('.restoration-nav, .restoration-hud, .repair-subcontrols, .restoration-story-progress, .restoration-edge-actions, .repair-design-dialog, .restoration-bottom')) return;
+    if (!world || event.target.closest('.restoration-nav, .restoration-hud, .repair-subcontrols, .restoration-topbar, .repair-design-dialog, .restoration-bottom')) return;
     event.preventDefault();
-    const point = cameraPoint(event, world);
+    const point = cameraPoint(event,world);
     const anchorX = (point.x - camera.x) / camera.zoom;
     const anchorY = (point.y - camera.y) / camera.zoom;
-    camera.zoom = Math.max(camera.min, Math.min(camera.max, camera.zoom * (event.deltaY < 0 ? 1.12 : .89)));
+    camera.zoom = Math.max(camera.min,Math.min(camera.max,camera.zoom * (event.deltaY < 0 ? 1.12 : .89)));
     camera.x = point.x - anchorX * camera.zoom;
     camera.y = point.y - anchorY * camera.zoom;
     clampCamera(world);
@@ -2847,7 +2975,8 @@ function showRestorationMoment(location, level, resume = false) {
     camera.pinch = null;
   }
 
-  function renderScene() {
+  /* Retired single-frame renderer; the persistent plate renderer below owns repair scenes.
+  function renderSceneLegacy() {
     if (!overlay.isConnected) return;
     window.clearInterval(hudTimer);
     const choice = selectedDesign();
@@ -2894,7 +3023,7 @@ function showRestorationMoment(location, level, resume = false) {
       ? `<div class="repair-toast" role="status">${level >= location.decos.length ? 'Location restored' : 'Complete!'}</div>${state.pendingRestoration?.committed ? `<div class="repair-floating-reward" style="--repair-target-x:${targetX}%;--repair-target-y:${targetY}%" aria-hidden="true">+⭐ <b>+20 XP</b><i>✦</i><i>✧</i></div>` : ''}`
       : '';
     overlay.innerHTML = `<div class="restoration-shell repair-scene-shell" style="--repair-accent:${film.accent};--restoration-design-color:${designColor};--restoration-backdrop:url('${art.before}')">
-      ${restorationHudMarkup()}
+      ${restorationHudMarkup(location)}
       <div class="restoration-world" data-phase="${phase}" data-location="${location.id}" data-repair-level="${level}" data-repair-mode="${repairState.mode || ''}" style="--repair-target-x:${targetX}%;--repair-target-y:${targetY}%" role="group" aria-label="${location.name} ${stage[0]} worksite">
         <div class="restoration-art-frame"><div class="restoration-art-canvas">
           ${plateMarkup}${revealMarkup}${floorTintMarkup}${castMarkup}${bubbleMarkup}${workEffects}${successToast}
@@ -2948,6 +3077,273 @@ function showRestorationMoment(location, level, resume = false) {
       energyPill.setAttribute('aria-label', `${state.energy} of ${maxEnergy()} energy`);
     }, 1000);
   }
+  */
+
+  let sceneInitialized = false;
+  let sceneBasePlate = art.before;
+  let sceneRevealPlate = art.after;
+  let lastSceneCardMarkup = null;
+  let normalizedScene = false;
+  let sceneFxTimer = 0;
+
+  function setPlateLayer(image, plate, altText = '') {
+    if (!image || !plate) return;
+    const key = plateKey(plate);
+    if (image.dataset.plateKey !== key) {
+      image.dataset.plateKey = key;
+      image.style.left = plate.frame ? `${(-plate.frame.x / plate.frame.w) * 100}%` : '0%';
+      image.style.top = plate.frame ? `${(-plate.frame.y / plate.frame.h) * 100}%` : '0%';
+      image.style.width = plate.frame ? `${(plate.frame.atlasWidth / plate.frame.w) * 100}%` : '100%';
+      image.style.height = plate.frame ? `${(plate.frame.atlasHeight / plate.frame.h) * 100}%` : '100%';
+      image.dataset.frameWidth = String(plate.frame?.w || 0);
+      image.dataset.frameHeight = String(plate.frame?.h || 0);
+      if (image.getAttribute('src') !== plate.src) image.src = plate.src;
+    }
+    if (image.alt !== altText) image.alt = altText;
+  }
+
+  function samplePlateEdges(image, plate, world) {
+    if (!image?.naturalWidth || !image?.naturalHeight) return;
+    try {
+      const frame = plate.frame || {x:0,y:0,w:image.naturalWidth,h:image.naturalHeight};
+      const canvas = document.createElement('canvas');
+      canvas.width = frame.w;
+      canvas.height = frame.h;
+      const context = canvas.getContext('2d',{willReadFrequently:true});
+      if (!context) return;
+      context.drawImage(image,frame.x,frame.y,frame.w,frame.h,0,0,frame.w,frame.h);
+      const rows = [context.getImageData(0,0,frame.w,1).data,context.getImageData(0,frame.h - 1,frame.w,1).data];
+      const sampleEdgeColor = (row,fallback) => {
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let x = 0; x < frame.w; x += 4) {
+          const index = x * 4;
+          const alpha = row[index + 3];
+          const red = row[index], green = row[index + 1], blue = row[index + 2];
+          if (alpha < 32 || (red > 245 && green > 245 && blue > 245)) continue;
+          r += red; g += green; b += blue; count += 1;
+        }
+        if (count < Math.max(4,Math.floor(frame.w / 24))) return fallback;
+        return `rgb(${Math.round(r / count)},${Math.round(g / count)},${Math.round(b / count)})`;
+      };
+      const topColor = sampleEdgeColor(rows[0],'#b9dfe0');
+      const bottomColor = sampleEdgeColor(rows[1],'#dfc79d');
+      const edgeFill = `linear-gradient(180deg,${topColor},${bottomColor})`;
+      world.style.background = edgeFill;
+      world.querySelector('.restoration-art-canvas')?.style.setProperty('background',edgeFill);
+    } catch (error) {
+      // The plate remains usable if a browser disallows canvas sampling.
+    }
+  }
+
+  function preloadNearbyPlates() {
+    [level - 1,level,level + 1].filter(step => step >= 0 && step <= 8).forEach(step => {
+      const plate = getPlate(location.id,step);
+      const image = new Image();
+      image.src = plate.src;
+    });
+  }
+
+  function renderScene() {
+    if (!overlay.isConnected) return;
+    const choice = selectedDesign();
+    const accent = choice?.color || (location.id === 'cafe' ? getCafeFloor().color : film.accent);
+    const detail = repairDetailState(location.id,level) || {};
+    const region = repairRegion(location.id,level);
+    const centerX = region.x + region.w / 2;
+    const centerY = region.y + region.h / 2;
+    const plateErrorKey = `${location.id}:${level}`;
+    if (art.before.src === art.after.src && (!art.before.frame || !art.after.frame || (art.before.frame.x === art.after.frame.x && art.before.frame.y === art.after.frame.y)) && !reportedPlateErrors.has(plateErrorKey)) {
+      reportedPlateErrors.add(plateErrorKey);
+      console.error(`[Harbor Whispers] Repair plate ${location.id}:${level} resolves to the same image frame before and after.`);
+    }
+
+    if (!sceneInitialized) {
+      overlay.innerHTML = `<div class="restoration-shell repair-scene-shell" style="--repair-accent:${film.accent};--restoration-design-color:${accent}">
+        ${restorationHudMarkup(location)}
+        <div class="restoration-world" data-location="${location.id}" data-repair-level="${level}" role="group" aria-label="${location.name} ${stage[0]} worksite">
+          <div class="restoration-art-frame"><div class="restoration-art-canvas">
+            <img class="restoration-world-before" alt="${art.beforeState || `${location.name} before restoration`}" draggable="false">
+            <div class="restoration-plate-reveal" aria-hidden="true"><img class="restoration-world-after" alt="" draggable="false"></div>
+            <div class="repair-purchase-preview" aria-hidden="true" hidden><img class="repair-purchase-preview-image" alt="" draggable="false"></div>
+            <div class="repair-stage-actors" aria-label="Harbor crew">${restorationCastMarkup(location.id,level)}</div>
+            <div class="restoration-ambient" aria-hidden="true"></div>
+            <div class="repair-scene-effects" aria-hidden="true"><div class="repair-action-fx"><span class="repair-action-tool">${detail.tool || '🔨'}</span><i>✦</i><i>✧</i><i>✦</i></div><div class="repair-sparkle-burst">✦　✧　✦</div></div>
+            <div class="restoration-hotspot-layer"><button class="repair-hotspot-marker" type="button" data-open-repair><span class="repair-hotspot-ring" aria-hidden="true"></span><span class="repair-cost-bubble"><span class="repair-bubble-tool" aria-hidden="true">${detail.tool || '🔨'}</span><span class="repair-bubble-coin" aria-hidden="true">🪙</span><b>${cost}</b><i aria-hidden="true"></i></span></button></div>
+            <div class="repair-floating-reward" aria-hidden="true" hidden>+⭐ <b>+20 XP</b><i>✦</i><i>✧</i></div>
+            <div class="repair-toast" role="status" hidden>Complete!</div>
+            <div class="plate-debug-box" aria-hidden="true" hidden></div>
+          </div></div>
+        </div>
+        ${restorationNavMarkup()}
+      </div>`;
+      sceneInitialized = true;
+      const beforeImage = overlay.querySelector('.restoration-world-before');
+      const afterImage = overlay.querySelector('.restoration-world-after');
+      const world = overlay.querySelector('.restoration-world');
+      const onPlateLoad = event => {
+        applyCamera();
+        if (event.currentTarget === beforeImage) samplePlateEdges(beforeImage,sceneBasePlate,world);
+      };
+      [beforeImage,afterImage].forEach(image => {
+        image.addEventListener('load',onPlateLoad);
+        image.addEventListener('error',() => {
+          console.error(`[Harbor Whispers] Failed to load restoration plate ${image.getAttribute('src') || 'unknown'}.`);
+          image.closest('.repair-stage-actor')?.remove();
+        });
+      });
+      overlay.querySelectorAll('.repair-stage-actor img').forEach(image => image.addEventListener('error',() => {
+        const actor = image.closest('.repair-stage-actor');
+        console.error(`[Harbor Whispers] Missing restoration sprite ${image.getAttribute('src') || 'unknown'}; actor skipped.`);
+        actor?.remove();
+      },{once:true}));
+      overlay.querySelectorAll('.repair-stage-actor').forEach(actor => actor.addEventListener('click',() => showActorSpeech(actor.dataset.repairActor)));
+      if (!speechTimer) speechTimer = window.setInterval(() => {
+        if (!overlay.isConnected || phase === 'design' || purchasePreviewOpen || Math.random() < .28) return;
+        const actors = [...overlay.querySelectorAll('.repair-stage-actor')];
+        if (actors.length) showActorSpeech(actors[Math.floor(Math.random() * actors.length)].dataset.repairActor);
+      },9500);
+      overlay.querySelector('[data-open-repair]')?.addEventListener('click',openRepairDetails);
+      bindRestorationChrome(overlay,returnToBoard);
+      preloadNearbyPlates();
+      if (PLATE_DEBUG) {
+        const debugBox = overlay.querySelector('.plate-debug-box');
+        measurePlateRegion(location.id,level,(measured,insideMean,outsideMean) => {
+          if (!overlay.isConnected || !measured || !debugBox?.isConnected) return;
+          debugBox.hidden = false;
+          debugBox.style.left = `${measured.x * 100}%`;
+          debugBox.style.top = `${measured.y * 100}%`;
+          debugBox.style.width = `${measured.w * 100}%`;
+          debugBox.style.height = `${measured.h * 100}%`;
+          debugBox.textContent = `Δ ${insideMean.toFixed(1)} / ${outsideMean.toFixed(1)}`;
+          renderScene();
+        });
+      }
+    }
+
+    const world = overlay.querySelector('.restoration-world');
+    const canvas = overlay.querySelector('.restoration-art-canvas');
+    const beforeImage = overlay.querySelector('.restoration-world-before');
+    const afterImage = overlay.querySelector('.restoration-world-after');
+    const revealMask = overlay.querySelector('.restoration-plate-reveal');
+    const hotspot = overlay.querySelector('.repair-hotspot-marker');
+    const bubble = overlay.querySelector('.repair-cost-bubble');
+    const effects = overlay.querySelector('.repair-scene-effects');
+    const reward = overlay.querySelector('.repair-floating-reward');
+    const toast = overlay.querySelector('.repair-toast');
+    const baseAlt = phase === 'complete' ? art.afterState || `Restored ${location.name}` : art.beforeState || `${location.name} before restoration`;
+    setPlateLayer(beforeImage,sceneBasePlate,baseAlt);
+    setPlateLayer(afterImage,sceneRevealPlate,'');
+    world.dataset.phase = phase;
+    world.dataset.repairMode = detail.mode || '';
+    world.setAttribute('aria-label',`${location.name} ${stage[0]} worksite`);
+    world.style.setProperty('--repair-target-x',`${centerX * 100}%`);
+    world.style.setProperty('--repair-target-y',`${centerY * 100}%`);
+    world.style.setProperty('--region-width',`${region.w * 100}%`);
+    world.style.setProperty('--region-height',`${region.h * 100}%`);
+    canvas.style.setProperty('--repair-mask-x',`${centerX * 100}%`);
+    canvas.style.setProperty('--repair-mask-y',`${centerY * 100}%`);
+    canvas.style.setProperty('--repair-mask-radius','160%');
+    revealMask?.style.setProperty('--repair-mask-x',`${centerX * 100}%`);
+    revealMask?.style.setProperty('--repair-mask-y',`${centerY * 100}%`);
+    revealMask?.style.setProperty('--repair-mask-radius','160%');
+    canvas.style.setProperty('--repair-accent',film.accent);
+    overlay.querySelector('.restoration-shell')?.style.setProperty('--restoration-design-color',accent);
+    const completed = Math.min(location.decos.length,Math.max(0,Number(state.levels[location.id]) || 0));
+    const progressPercent = Math.round(completed / Math.max(1,location.decos.length) * 100);
+    const progressChip = overlay.querySelector('.restoration-story-progress');
+    if (progressChip) {
+      const progressLabel = progressChip.querySelector('span b');
+      const progressCount = progressChip.querySelector('span small');
+      const progressFill = progressChip.querySelector('i b');
+      if (progressLabel) progressLabel.textContent = `${location.icon} ${progressPercent}%`;
+      if (progressCount) progressCount.textContent = `${completed}/${location.decos.length}`;
+      if (progressFill) progressFill.style.width = `${progressPercent}%`;
+      progressChip.setAttribute('aria-label',`${location.name}, ${progressPercent}% restored, open chapter and step details`);
+    }
+    const unaffordable = state.coins < cost;
+    hotspot.classList.toggle('unaffordable',unaffordable);
+    bubble.classList.toggle('unaffordable',unaffordable);
+    hotspot.disabled = phase !== 'objective';
+    hotspot.hidden = phase !== 'objective';
+    hotspot.style.setProperty('--repair-hit-x',`${centerX * 100}%`);
+    hotspot.style.setProperty('--repair-hit-y',`${centerY * 100}%`);
+    hotspot.style.setProperty('--repair-hit-width',`${region.w * 100}%`);
+    hotspot.style.setProperty('--repair-hit-height',`${region.h * 100}%`);
+    hotspot.setAttribute('aria-label',`${detail.repairItem || stage[0]}, repair cost ${cost} coins${unaffordable ? ', not enough coins' : ''}`);
+    const tool = detail.tool || '🔨';
+    const bubbleTool = hotspot.querySelector('.repair-bubble-tool');
+    if (bubbleTool) bubbleTool.textContent = tool;
+    const costValue = hotspot.querySelector('.repair-cost-bubble b');
+    if (costValue) costValue.textContent = String(cost);
+    const actionTool = overlay.querySelector('.repair-action-tool');
+    if (actionTool) actionTool.textContent = tool;
+    effects.classList.toggle('is-working',phase === 'work');
+    effects.classList.toggle('is-celebrating',phase === 'complete');
+    effects.style.left = `${centerX * 100}%`;
+    effects.style.top = `${centerY * 100}%`;
+    const committed = Boolean(state.pendingRestoration?.committed || locationRestoredNotice);
+    const locationComplete = level >= location.decos.length && phase === 'complete' && committed;
+    world.classList.toggle('final-location-complete',locationComplete);
+    if (toast) {
+      toast.hidden = phase !== 'complete' || !committed;
+      toast.textContent = locationComplete ? `${location.icon} ${location.name} restored!` : 'Complete!';
+      toast.classList.toggle('location-complete',locationComplete);
+    }
+    reward.hidden = phase !== 'complete' || !committed;
+    reward.style.left = `${centerX * 100}%`;
+    reward.style.top = `${centerY * 100}%`;
+    const xpValue = reward.querySelector('b');
+    if (xpValue) xpValue.textContent = '+20 XP';
+
+    const choiceCards = design ? design.choices.map((option,index) => `
+      <button class="restoration-choice ${selectedChoice === index ? 'selected' : ''}" type="button" data-restoration-choice="${index}" aria-label="Preview ${option.name}: ${option.description}" aria-pressed="${selectedChoice === index}" style="--choice-color:${option.color}">
+        <span class="restoration-choice-art">${repairDesignArtMarkup(location.id,level,option)}</span>
+        <b>${option.name}</b><small>${option.description}</small>${selectedChoice === index ? '<em aria-hidden="true">✓</em>' : ''}
+      </button>`).join('') : '';
+    const content = phase === 'design'
+      ? `<div class="repair-design-dialog"><header><small>YOUR HARBOR · YOUR CHOICE</small><button class="repair-design-close" type="button" aria-label="Close design choices">×</button></header><h2>${design?.title || 'Choose a finish'}</h2><p>${design?.prompt || ''}</p><div class="restoration-choices" role="group" aria-label="Choose a saved design">${choiceCards}</div><button class="btn primary restoration-confirm" type="button" data-restoration-confirm>Confirm ${choice?.name || 'this design'}</button></div>`
+      : '';
+    let bottom = overlay.querySelector('.restoration-bottom');
+    if (!content) {
+      bottom?.remove();
+      lastSceneCardMarkup = null;
+    } else {
+      if (!bottom) {
+        overlay.querySelector('.restoration-nav')?.insertAdjacentHTML('beforebegin','<main class="restoration-bottom"><section class="restoration-card"></section></main>');
+        bottom = overlay.querySelector('.restoration-bottom');
+      }
+      const card = bottom?.querySelector('.restoration-card');
+      if (card && content !== lastSceneCardMarkup) {
+        lastSceneCardMarkup = content;
+        card.innerHTML = content;
+        card.querySelectorAll('[data-restoration-choice]').forEach(button => button.addEventListener('click',() => {
+          if (phase !== 'design' || !design) return;
+          selectedChoice = Number(button.dataset.restorationChoice);
+          if (state.pendingRestoration) state.pendingRestoration.choiceId = selectedDesign()?.id || '';
+          saveState();
+          renderScene();
+        }));
+        card.querySelector('.repair-design-close')?.addEventListener('click',() => returnToBoard());
+        card.querySelector('[data-restoration-confirm]')?.addEventListener('click',confirmDesign);
+      }
+    }
+    const energyValue = overlay.querySelector('[data-repair-energy-value]');
+    if (energyValue) energyValue.textContent = `${state.energy}`;
+    if (overlay.querySelector('.repair-energy')) overlay.querySelector('.repair-energy').setAttribute('aria-label',`${state.energy} of ${maxEnergy()} energy`);
+    const coinValue = overlay.querySelector('.repair-coins b');
+    if (coinValue) coinValue.textContent = String(state.coins);
+    const starValue = overlay.querySelector('.repair-stars b');
+    if (starValue) starValue.textContent = String(state.stars);
+    const gemValue = overlay.querySelector('.repair-gems b');
+    if (gemValue) gemValue.textContent = String(state.pearls);
+    applyCamera();
+    if (!hudTimer) hudTimer = window.setInterval(() => {
+      const value = overlay.querySelector('[data-repair-energy-value]');
+      if (value) value.textContent = `${state.energy}`;
+      const pill = overlay.querySelector('.repair-energy');
+      pill?.setAttribute('aria-label',`${state.energy} of ${maxEnergy()} energy`);
+    },1000);
+  }
 
   function beginRestoration() {
     if (repairLocked || state.pendingRestoration || phase !== 'objective') return;
@@ -2967,7 +3363,7 @@ function showRestorationMoment(location, level, resume = false) {
 
     const previousCoins = state.coins;
     const transactionId = window.crypto?.randomUUID?.() || `repair-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    const workDurationMs = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1950;
+    const workDurationMs = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1800;
     const workStartedAt = Date.now();
     state.coins = Math.max(0, Math.floor(Number(state.coins) || 0) - safeCost);
     state.restorationLedger[receiptKey] = {
@@ -3017,7 +3413,13 @@ function showRestorationMoment(location, level, resume = false) {
     if (design) saveState();
     beep(880);
     renderScene();
-    if (!design) sceneTimer = window.setTimeout(completeRestorationScene, 1500);
+    if (level >= location.decos.length) {
+      easeCameraToFullPlate();
+      sceneTimer = window.setTimeout(completeRestorationScene, 2900);
+    } else {
+      easeCameraToRegion(level + 1);
+      sceneTimer = window.setTimeout(completeRestorationScene, 1900);
+    }
   }
 
   function confirmDesign() {
@@ -3028,7 +3430,13 @@ function showRestorationMoment(location, level, resume = false) {
     playPop();
     beep(980);
     renderScene();
-    sceneTimer = window.setTimeout(completeRestorationScene, 1500);
+    if (level >= location.decos.length) {
+      easeCameraToFullPlate();
+      sceneTimer = window.setTimeout(completeRestorationScene, 2900);
+    } else {
+      easeCameraToRegion(level + 1);
+      sceneTimer = window.setTimeout(completeRestorationScene, 1900);
+    }
   }
 
   function completeRestorationScene() {
@@ -3044,6 +3452,9 @@ function showRestorationMoment(location, level, resume = false) {
     }
     window.clearTimeout(sceneTimer);
     window.clearInterval(hudTimer);
+    window.clearInterval(speechTimer);
+    window.clearTimeout(speechHideTimer);
+    if (cameraAnimationFrame) window.cancelAnimationFrame(cameraAnimationFrame);
     releaseCamera();
     overlay.remove();
     currentBoardKey = 'main';
@@ -3063,17 +3474,84 @@ function showRestorationMoment(location, level, resume = false) {
     const startedAtValue = Number(savedPending.workStartedAt);
     const startedAt = Number.isFinite(startedAtValue) && startedAtValue > 0 ? startedAtValue : Date.now();
     const durationValue = Number(savedPending.workDurationMs);
-    const duration = Number.isFinite(durationValue) ? Math.max(0, Math.min(5000, durationValue)) : 1950;
+    const duration = Number.isFinite(durationValue) ? Math.max(0, Math.min(5000, durationValue)) : 1800;
     const remaining = window.matchMedia('(prefers-reduced-motion: reduce)').matches
       ? 0
       : Math.max(0, duration - Math.max(0, Date.now() - startedAt));
     sceneTimer = window.setTimeout(finishWork, remaining);
   } else if (phase === 'complete' && savedPending?.committed && state.pendingRestoration?.committed) {
-    sceneTimer = window.setTimeout(completeRestorationScene, 1100);
+    if (level >= location.decos.length) {
+      easeCameraToFullPlate();
+      sceneTimer = window.setTimeout(completeRestorationScene,2900);
+    } else {
+      easeCameraToRegion(level + 1);
+      sceneTimer = window.setTimeout(completeRestorationScene,1900);
+    }
   }
 }
 
+function showRestoredLocationScene(location) {
+  const level = Math.min(location.decos.length, Number(state.levels[location.id]) || 0);
+  if (!level) return showRestorationMoment(location, 1);
+  const film = RESTORATION_FILMS[location.film] || RESTORATION_FILMS.cafe;
+  const plate = getPlate(location.id, level);
+  const designEntries = Object.entries(RESTORATION_DESIGNS[location.id] || {}).map(([step, design]) => {
+    const selectedId = design.key === 'floor'
+      ? state.locationStyles?.[location.id]?.[design.key] || state.cafeFloor
+      : state.locationStyles?.[location.id]?.[design.key];
+    const choice = design.choices.find(option => option.id === selectedId);
+    return choice ? {step:Number(step), title:design.title, choice} : null;
+  }).filter(Boolean);
+  const latestDesign = designEntries.filter(entry => entry.step <= level).at(-1);
+  const artClass = plate.frame ? 'restoration-world-plate' : 'restoration-world-direct-plate';
+  const overlay = document.createElement('section');
+  overlay.className = `restoration-scene-screen restoration-repair-screen restoration-visit-screen ${location.id === 'cafe' ? 'restoration-cafe-screen' : 'restoration-portrait-screen'}`;
+  overlay.setAttribute('role','dialog');
+  overlay.setAttribute('aria-modal','true');
+  overlay.setAttribute('aria-label',`Visit restored ${location.name}`);
+  overlay.innerHTML = `<div class="restoration-shell repair-scene-shell restoration-visit-shell" style="--repair-accent:${film.accent};--restoration-design-color:${latestDesign?.choice.color || film.accent}">
+    ${restorationHudMarkup(location)}
+    <header class="restoration-topbar"><button class="restoration-back" type="button" data-restoration-return aria-label="Back to Town">‹ <span>Board</span></button><div class="restoration-location-title"><small>YOUR RESTORED HARBOR · ${level} IMPROVEMENTS</small><b>${location.icon} ${location.name}</b></div><span class="restoration-step-count">${level} / ${location.decos.length}</span></header>
+    <div class="restoration-world restoration-visit-world" data-location="${location.id}" data-phase="complete" role="img" aria-label="Restored ${location.name}, improvement ${level} of ${location.decos.length}">
+      <div class="restoration-art-frame"><div class="restoration-art-canvas">
+        <img class="restoration-world-before ${artClass}" src="${plate.src}" alt="${location.name}, restored through improvement ${level}" style="${plateImageStyle(plate)}" draggable="false">
+        <div class="repair-stage-actors" aria-hidden="true">${restorationCastMarkup(location.id, level)}</div>
+      </div></div>
+    </div>
+    <main class="restoration-bottom"><section class="restoration-card restoration-visit-card">
+      <small class="restoration-kicker">A PLACE MADE BY THE HARBOR</small>
+      <h2>${location.name} feels like home.</h2>
+      <p>${latestDesign ? `Your saved ${latestDesign.choice.name.toLowerCase()} finish is part of this harbor story.` : `${level} of ${location.decos.length} improvements are complete.`}</p>
+      <div class="location-style-history">${designEntries.length ? designEntries.map(entry => `<span>${entry.title} · <b>${entry.choice.name}</b></span>`).join('') : `<span>${location.decos.slice(0,level).join('  ')}</span>`}</div>
+      <button class="btn restoration-action" type="button" data-restoration-return>Back to the harbor board</button>
+    </section></main>
+    ${restorationNavMarkup()}
+  </div>`;
+  document.body.appendChild(overlay);
+  const canvas = overlay.querySelector('.restoration-art-canvas');
+  const fitVisitArt = () => {
+    if (!canvas) return;
+    const coverWidth = Math.max(1,window.innerWidth,window.innerHeight * 9 / 16);
+    const width = coverWidth * (location.id === 'cafe' ? 1.16 : 1);
+    canvas.style.setProperty('--visit-canvas-width',`${width}px`);
+    canvas.style.setProperty('--visit-canvas-height',`${width * 16 / 9}px`);
+  };
+  fitVisitArt();
+  window.addEventListener('resize',fitVisitArt);
+  const exitVisit = (boardKey = 'main') => {
+    window.removeEventListener('resize',fitVisitArt);
+    overlay.remove();
+    currentBoardKey = boardKey;
+    selectedIndex = -1;
+    render();
+  };
+  bindRestorationChrome(overlay,exitVisit);
+}
+
 function showLocationVisit(location) {
+  return showRestoredLocationScene(location);
+  /* Retired legacy visit renderer; restored scenes now use the saved final plate.
+
   const level = Math.min(location.decos.length, Number(state.levels[location.id]) || 0);
   if (!level) return showRestorationMoment(location, 1);
   const film = RESTORATION_FILMS[location.film] || RESTORATION_FILMS.cafe;
@@ -3120,6 +3598,8 @@ function showLocationVisit(location) {
     energyValue.textContent = overlay.classList.contains('restoration-cafe-screen') ? `${state.energy}` : `${state.energy}/${maxEnergy()}`;
     energyPill.setAttribute('aria-label', `${state.energy} of ${maxEnergy()} energy. ${timerText === 'FULL' ? 'Energy is full' : `Next energy in ${timerText}`}`);
   }, 1000);
+}
+  */
 }
 
 function showCafeFloorCustomizer() {
@@ -3496,6 +3976,47 @@ function render() {
   pumpCompletionQueue();
 }
 
+function refreshGeneratorClocks() {
+  const cells = board();
+  cells.forEach((cell,index) => {
+    if (!cell?.gen) return;
+    const element = container.querySelector(`.cell[data-i="${index}"]`);
+    if (!element) return;
+    const seconds = generatorTimeLeft(cell);
+    element.classList.toggle('cd',seconds > 0);
+    const caption = element.querySelector('.cell-caption');
+    if (caption) caption.textContent = seconds ? `${seconds}s` : `${cell.charges}/${generatorCapacity(cell.gen)}`;
+    element.setAttribute('aria-label',describeItem(cell));
+    if (index !== selectedIndex) return;
+    const definition = generatorDefinition(cell.gen);
+    const cost = definition.energyCost || 1;
+    const itemName = FAMILIES[cell.gen]?.tiers[0]?.name || 'an item';
+    const description = seconds
+      ? `Recharging · ready in ${seconds}s.`
+      : state.energy < cost
+        ? `Need ${cost}⚡ to make ${itemName}. Orders restore energy.`
+        : nearestEmpty(index) < 0
+          ? 'Board is full · merge, store or deliver an item to make room.'
+          : `Tap to make ${itemName} · costs ${cost}⚡ · ${cell.charges}/${generatorCapacity(cell.gen)} drops left.`;
+    const info = container.querySelector('.item-info');
+    const detail = info?.querySelector('.item-info-description');
+    if (detail) {
+      detail.textContent = description;
+      info.setAttribute('aria-label',`${definition.name} · Lv ${generatorLevel(cell.gen)}. ${description}`);
+    }
+  });
+}
+
+function refreshEnergyDisplays() {
+  const cap = maxEnergy();
+  const mainValue = container.querySelector('.energy-pill b');
+  if (mainValue) mainValue.textContent = `${state.energy}/${cap}`;
+  document.querySelectorAll('[data-repair-energy-value]').forEach(value => { value.textContent = String(state.energy); });
+  document.querySelectorAll('.repair-energy').forEach(pill => pill.setAttribute('aria-label',`${state.energy} of ${cap} energy`));
+  document.querySelectorAll('.cafe-resource-pill.energy-pill').forEach(pill => pill.setAttribute('aria-label',`${state.energy} of ${cap} energy. Open daily goals`));
+  document.querySelectorAll('[data-energy-countdown]').forEach(value => { value.textContent = restorationEnergyCountdown(); });
+}
+
 function tickEnergy() {
   const now = Date.now();
   const cap = maxEnergy();
@@ -3504,7 +4025,6 @@ function tickEnergy() {
     state.energy = Math.min(cap, state.energy + gained);
     state.lastTick = state.energy >= cap ? now : state.lastTick + gained * ENERGY_TICK_MS;
     saveState();
-    render();
   }
 }
 
@@ -3528,7 +4048,8 @@ if (!state.introSeen) {
 }
 window.setInterval(() => {
   tickEnergy();
-  const hasCooldown = board().some(cell => cell?.gen && cell.readyAt > Date.now());
+  refreshEnergyDisplays();
+  refreshGeneratorClocks();
   if (tutorialStep === null) {
     const nextHint = Date.now() - lastPlayerActionAt >= 6500 ? findMergePair() : null;
     const hintChanged = JSON.stringify(nextHint) !== JSON.stringify(mergeHintPair);
@@ -3537,7 +4058,6 @@ window.setInterval(() => {
       if (!drag) render();
     }
   }
-  if (hasCooldown && !drag) render();
   pumpCompletionQueue();
 }, 1000);
 window.ProgressLogger?.logProgress?.('game_start', {});
